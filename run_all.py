@@ -82,6 +82,8 @@ PIPELINE = [
      [PY, "datawarehouse/tests/validate_against_sources.py"]),
     ("Test: data quality rejection path (synthetic data)",
      [PY, "datawarehouse/tests/test_dq_reject_path.py"]),
+    ("Test: warehouse load freshness (MONITOREO)",
+     [PY, "datawarehouse/tests/check_freshness.py"]),
 
     # --- Deliverables ---
     ("Reports: Metabase dashboard",

@@ -141,3 +141,9 @@ flowchart LR
 | Reportes HTML de perfilamiento | ydata-profiling |
 | Reportes | Metabase (open source) en Docker |
 | Diagramas | Graphviz |
+
+### Por qué Docker y no Railway
+
+El enunciado de la Entrega 1 recomendaba Railway como servicio en la nube, y ahí se hospedó el proyecto durante esa entrega. Para la Entrega 2 se migró a un stack 100% local con `docker-compose`. La razón de fondo no es solo el costo (Railway cobra 5 USD/mes y el proyecto ya necesita cuatro servicios corriendo a la vez), sino que **el proyecto ahora depende de poder reconstruir el stack completo de forma determinista**: `run_all.py --reset` borra los volúmenes y recarga todo desde cero, y sobre esa garantía se apoyan directamente `datawarehouse/tests/test_backup_restore.py`, `test_dq_reject_path.py` y `check_freshness.py`. Esos tests solo son confiables si corren contra un estado que nadie más pudo haber alterado mientras tanto; una base compartida en la nube, con dos o tres personas del equipo corriendo el ETL al mismo tiempo, no ofrece esa garantía sin coordinación manual.
+
+Docker resuelve esto por diseño: cada persona —incluido quien evalúe el proyecto— obtiene un entorno aislado y desechable, sin necesitar cuenta, credenciales ni esperar a que un servicio en la nube responda. Como beneficio adicional, fijar la versión exacta del motor (`postgres:16-alpine`, `mysql:8.0`) elimina de raíz el tipo de problema que el proyecto sí sufrió con Railway: su Postgres 18 no era compatible con la versión de `pg_dump` disponible en las máquinas del equipo, lo que obligó a escribir un generador de backups propio (`tools/generate_backup.py`) en primer lugar.
