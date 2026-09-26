@@ -1,28 +1,19 @@
 """
-ETL de dimensiones - capas 5 a 7 de Giordano, rama de dimensiones.
+Warehouse ETL, layers 5-7 for the dimensions.
 
-El diagrama de la Clase 2 (diapositivas 14 a 19) termina bifurcandose en
-dos modelos de carga: partes involucradas y eventos. Este proceso es la
-rama de las dimensiones; etl_dw_facts.py es la de los hechos. Ambos
-parten del mismo Clean Staging que dejo etl_dw_staging.py.
+Reads the latest successful Clean Staging run (never the sources),
+conforms each subject area, publishes the load-ready rows and reloads
+the dimension tables:
 
-    5 Transformation     conformar por area tematica      dia. 19
-    6 Load-Ready Publish forma definitiva                 -
-    7 Load               tablas dim_* del modelo estrella -
+    Area          Target             Operations
+    Tiempo        dim_tiempo         generated
+    Organizacion  dim_oficina        projection
+    Ventas        dim_estado_orden   distinct values
+    Cliente       dim_cliente        cross-source join, address merge
+    Producto      dim_producto       join with productlines, cross-source join
+    Empleado      dim_empleado       union of both sources, composite key
 
-La transformacion se organiza por AREA CONFORMADA, igual que las cajas
-"Conform Loan Data" y "Conform Deposit Data" del diagrama:
-
-    Tiempo        dim_tiempo        generacion
-    Organizacion  dim_oficina       proyeccion
-    Ventas        dim_estado_orden  agregacion (valores distintos)
-    Cliente       dim_cliente       join entre fuentes, consolidacion
-    Producto      dim_producto      join con productlines, join entre fuentes
-    Empleado      dim_empleado      union de fuentes, llave compuesta
-
-Este proceso NO lee las fuentes: solo la pila de limpios de Clean Staging.
-
-Uso:
+Usage:
     python datawarehouse/etl/etl_dw_dimensions.py
 """
 from datetime import date, timedelta
@@ -30,232 +21,224 @@ from datetime import date, timedelta
 import pandas as pd
 import sqlalchemy as sa
 
-from staging_comun import (DW, abrir_run, cerrar_run, filas_json, insertar,
-                           leer_limpio, leer_payload, registrar_ejecucion,
-                           ultimo_staging_ok)
+from common import (DW, close_run, insert, json_rows, last_successful_staging_run,
+                    log_execution, open_run, read_clean, read_payload)
 
-PROCESO = "etl_dw_dimensions"
+PROCESS = "etl_dw_dimensions"
 
-MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-DIAS  = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
+MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+               "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+DAY_NAMES = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
 
-# Orden de carga: no hay dependencias entre dimensiones, pero se fija
-# para que la salida sea siempre la misma.
-ORDEN_CARGA = ["dim_tiempo", "dim_estado_orden", "dim_oficina",
-               "dim_cliente", "dim_producto", "dim_empleado"]
+# Fixed load order so the output is always the same.
+LOAD_ORDER = ["dim_tiempo", "dim_estado_orden", "dim_oficina",
+              "dim_cliente", "dim_producto", "dim_empleado"]
 
-_calidad = []   # (regla, evaluadas, fallidas) -> dq_result
+# Order statuses that do not count as a closed sale.
+NON_EFFECTIVE_STATUSES = {"Cancelled", "Disputed", "On Hold"}
 
-
-def calidad(regla, evaluadas, fallidas, mensaje):
-    _calidad.append((regla, evaluadas, fallidas))
-    print(f"        [calidad] {mensaje}")
+_quality_results = []   # (rule, evaluated, failed) -> dq_result
 
 
-def publicar_transform(run_id, area, objetivo, df, operaciones):
-    insertar("stg_transform", [
-        {"run_id": run_id, "area_conformada": area, "objetivo": objetivo,
-         "nro_fila": i, "payload": p, "operaciones": operaciones}
-        for i, p in enumerate(filas_json(df), 1)
+def record_quality(rule, evaluated, failed, message):
+    _quality_results.append((rule, evaluated, failed))
+    print(f"        [quality] {message}")
+
+
+def publish_transform(run_id, area, target, df, operations):
+    insert("stg_transform", [
+        {"run_id": run_id, "area_conformada": area, "objetivo": target,
+         "nro_fila": i, "payload": p, "operaciones": operations}
+        for i, p in enumerate(json_rows(df), 1)
     ])
-    print(f"    {area:<13}{objetivo:<18}{len(df):>6}  {operaciones}")
+    print(f"    {area:<13}{target:<18}{len(df):>6}  {operations}")
 
 
 # ============================================================
-# CAPA 5 - TRANSFORMATION: conformar por area tematica
+# Layer 5 - Transformation, one function per subject area
 # ============================================================
 
-def area_tiempo(run_id):
-    """No viene de ninguna fuente: se genera. Cubre 2003-2005, que es el
-    rango de ventas (2003-01-06 a 2005-05-31) y de llamadas."""
-    filas, d, fin = [], date(2003, 1, 1), date(2005, 12, 31)
-    while d <= fin:
-        filas.append({
+def area_time(run_id):
+    """Generated calendar covering 2003-2005, the span of sales and calls."""
+    rows, d, end = [], date(2003, 1, 1), date(2005, 12, 31)
+    while d <= end:
+        rows.append({
             "tiempo_key": int(d.strftime("%Y%m%d")), "fecha": d,
             "anio": d.year, "trimestre": (d.month - 1) // 3 + 1, "mes": d.month,
-            "nombre_mes": MESES[d.month - 1], "dia": d.day,
-            "dia_semana": d.isoweekday(), "nombre_dia": DIAS[d.isoweekday() - 1],
+            "nombre_mes": MONTH_NAMES[d.month - 1], "dia": d.day,
+            "dia_semana": d.isoweekday(), "nombre_dia": DAY_NAMES[d.isoweekday() - 1],
             "es_fin_semana": d.isoweekday() >= 6, "anio_mes": d.strftime("%Y-%m"),
         })
         d += timedelta(days=1)
-    publicar_transform(run_id, "Tiempo", "dim_tiempo", pd.DataFrame(filas),
-                       "generacion")
+    publish_transform(run_id, "Tiempo", "dim_tiempo", pd.DataFrame(rows),
+                      "generacion")
 
 
-def area_organizacion(run_id, rs):
-    ofi = leer_limpio(rs, "offices").rename(columns={
+def area_organization(run_id, staging_run):
+    offices = read_clean(staging_run, "offices").rename(columns={
         "officeCode": "codigo_oficina", "city": "ciudad", "country": "pais",
         "state": "region", "territory": "territorio"})
-    ofi = ofi[["codigo_oficina", "ciudad", "pais", "region", "territorio"]]
-    publicar_transform(run_id, "Organizacion", "dim_oficina", ofi, "proyeccion")
+    offices = offices[["codigo_oficina", "ciudad", "pais", "region", "territorio"]]
+    publish_transform(run_id, "Organizacion", "dim_oficina", offices, "proyeccion")
 
 
-def area_ventas(run_id, rs):
-    """Catalogo de estados de orden. es_efectiva distingue la venta
-    cerrada de la cancelada, en disputa o en espera: se cargan todas y el
-    reporte decide si las excluye, en vez de borrarlas del almacen."""
-    ordenes = leer_limpio(rs, "orders")
-    no_efectivos = {"Cancelled", "Disputed", "On Hold"}
-    estados = pd.DataFrame([
-        {"estado": e, "es_efectiva": e not in no_efectivos}
-        for e in sorted(ordenes["status"].unique())
+def area_sales(run_id, staging_run):
+    """Order status catalogue. es_efectiva flags closed sales; every order
+    is loaded and reports decide whether to exclude the rest."""
+    orders = read_clean(staging_run, "orders")
+    statuses = pd.DataFrame([
+        {"estado": s, "es_efectiva": s not in NON_EFFECTIVE_STATUSES}
+        for s in sorted(orders["status"].unique())
     ])
-    n_no = int((~estados["es_efectiva"]).sum())
-    calidad("estado_orden_no_efectivo", len(estados), n_no,
-            f"estados que no cuentan como venta cerrada: {n_no} de {len(estados)}")
-    publicar_transform(run_id, "Ventas", "dim_estado_orden", estados,
-                       "agregacion (valores distintos)")
+    n_non_effective = int((~statuses["es_efectiva"]).sum())
+    record_quality("estado_orden_no_efectivo", len(statuses), n_non_effective,
+                   f"statuses that are not a closed sale: {n_non_effective} of {len(statuses)}")
+    publish_transform(run_id, "Ventas", "dim_estado_orden", statuses,
+                      "agregacion (valores distintos)")
 
 
-def area_cliente(run_id, rs):
-    """Dimension CONFORMADA: classicmodels es la fuente autoritativa (tiene
-    todos los atributos); customerservice aporta la bandera de presencia."""
-    cm = leer_limpio(rs, "customers").rename(columns={
+def area_customer(run_id, staging_run):
+    """Conformed customer: classicmodels is authoritative (it has every
+    attribute); customerservice only contributes a presence flag."""
+    cm = read_clean(staging_run, "customers").rename(columns={
         "customerNumber": "numero_cliente", "customerName": "nombre_cliente",
         "contactFirstName": "contacto_nombre", "contactLastName": "contacto_apellido",
         "phone": "telefono", "city": "ciudad", "state": "estado_region",
         "postalCode": "codigo_postal", "country": "pais",
         "creditLimit": "limite_credito"})
 
-    # Hallazgo de la Entrega 1: addressLine2 esta vacia en el 81,97% de
-    # las filas. Se consolida con addressLine1 en un solo atributo.
-    vacias = int(cm["addressLine2"].isna().sum())
+    # addressLine2 is mostly null, so both lines are merged into one field.
+    empty_line2 = int(cm["addressLine2"].isna().sum())
     cm["direccion_completa"] = (
         cm["addressLine1"].fillna("")
         + cm["addressLine2"].fillna("").apply(lambda x: f", {x}" if x else "")
     ).str.strip(", ")
-    calidad("cliente_direccion_linea2_nula", len(cm), vacias,
-            f"addressLine2 nula en {vacias} de {len(cm)} -> consolidada")
+    record_quality("cliente_direccion_linea2_nula", len(cm), empty_line2,
+                   f"addressLine2 null in {empty_line2} of {len(cm)} -> merged")
 
-    cs = leer_limpio(rs, "cs_customers")
+    cs = read_clean(staging_run, "cs_customers")
     cm["presente_en_ventas"] = True
     cm["presente_en_servicio"] = cm["numero_cliente"].isin(cs["customernumber"])
-    en_ambas = int(cm["presente_en_servicio"].sum())
-    calidad("cliente_conformidad_fuentes", len(cm), len(cm) - en_ambas,
-            f"clientes presentes en ambas fuentes: {en_ambas} de {len(cm)}")
+    in_both = int(cm["presente_en_servicio"].sum())
+    record_quality("cliente_conformidad_fuentes", len(cm), len(cm) - in_both,
+                   f"customers present in both sources: {in_both} of {len(cm)}")
 
     cm = cm[["numero_cliente", "nombre_cliente", "contacto_nombre",
              "contacto_apellido", "telefono", "direccion_completa", "ciudad",
              "estado_region", "codigo_postal", "pais", "limite_credito",
              "presente_en_ventas", "presente_en_servicio"]]
-    publicar_transform(run_id, "Cliente", "dim_cliente", cm,
-                       "join entre fuentes, consolidacion de direccion")
+    publish_transform(run_id, "Cliente", "dim_cliente", cm,
+                      "join entre fuentes, consolidacion de direccion")
 
 
-def area_producto(run_id, rs):
-    """Dimension CONFORMADA, con la linea de producto desnormalizada."""
-    pr = leer_limpio(rs, "products")
-    pl = leer_limpio(rs, "productlines")
+def area_product(run_id, staging_run):
+    """Conformed product with its product line denormalised."""
+    products = read_clean(staging_run, "products")
+    lines = read_clean(staging_run, "productlines")
 
-    # Hallazgo de la Entrega 1: htmlDescription e image estan 100% vacias.
-    # Se extrajeron ("traer todo", dia. 15) pero no pasan al modelo.
-    calidad("productline_columnas_vacias", 2, 2,
-            "htmlDescription e image (100% nulas) no pasan al modelo")
-    pl = pl[["productLine", "textDescription"]]
+    # htmlDescription and image are 100% null: staged, but not modelled.
+    record_quality("productline_columnas_vacias", 2, 2,
+                   "htmlDescription and image (100% null) are not modelled")
+    lines = lines[["productLine", "textDescription"]]
 
-    pr = pr.merge(pl, on="productLine", how="left").rename(columns={
+    products = products.merge(lines, on="productLine", how="left").rename(columns={
         "productCode": "codigo_producto", "productName": "nombre_producto",
         "productLine": "linea_producto", "textDescription": "descripcion_linea",
         "productScale": "escala", "productVendor": "proveedor",
         "buyPrice": "precio_compra", "MSRP": "precio_msrp"})
-    pcs = leer_limpio(rs, "cs_products")
-    pr["presente_en_ventas"] = True
-    pr["presente_en_servicio"] = pr["codigo_producto"].isin(pcs["productcode"])
-    en_ambas = int(pr["presente_en_servicio"].sum())
-    calidad("producto_conformidad_fuentes", len(pr), len(pr) - en_ambas,
-            f"productos presentes en ambas fuentes: {en_ambas} de {len(pr)}")
+    cs = read_clean(staging_run, "cs_products")
+    products["presente_en_ventas"] = True
+    products["presente_en_servicio"] = products["codigo_producto"].isin(cs["productcode"])
+    in_both = int(products["presente_en_servicio"].sum())
+    record_quality("producto_conformidad_fuentes", len(products), len(products) - in_both,
+                   f"products present in both sources: {in_both} of {len(products)}")
 
-    pr = pr[["codigo_producto", "nombre_producto", "linea_producto",
-             "descripcion_linea", "escala", "proveedor", "precio_compra",
-             "precio_msrp", "presente_en_ventas", "presente_en_servicio"]]
-    publicar_transform(run_id, "Producto", "dim_producto", pr,
-                       "join con productlines, join entre fuentes")
+    products = products[["codigo_producto", "nombre_producto", "linea_producto",
+                         "descripcion_linea", "escala", "proveedor", "precio_compra",
+                         "precio_msrp", "presente_en_ventas", "presente_en_servicio"]]
+    publish_transform(run_id, "Producto", "dim_producto", products,
+                      "join con productlines, join entre fuentes")
 
 
-def area_empleado(run_id, rs):
-    """Dimension NO conformada.
+def area_employee(run_id, staging_run):
+    """Non-conformed employee dimension.
 
-    Los 23 empleados de classicmodels y los 30 de customerservice son
-    personas distintas y no comparten ninguna llave (solape 0%, medido en
-    la Entrega 1). Hoy sus numeros ni siquiera coinciden, pero son
-    secuencias independientes de dos sistemas distintos y nada garantiza
-    que no choquen manana. La llave de negocio compuesta
-    (numero_empleado, sistema_origen) hace que la dimension no dependa
-    de esa casualidad y deja registrada la procedencia de cada fila.
+    Sales reps (classicmodels) and call-center agents (customerservice)
+    are different people with independent numbering. The composite
+    business key (numero_empleado, sistema_origen) keeps them apart even
+    if the two numberings ever overlap.
     """
-    ecm = leer_limpio(rs, "employees").rename(columns={
+    reps = read_clean(staging_run, "employees").rename(columns={
         "employeeNumber": "numero_empleado", "firstName": "nombre",
         "lastName": "apellido", "jobTitle": "cargo", "officeCode": "numero_oficina"})
-    ecm["sistema_origen"] = "classicmodels"
-    ecs = leer_limpio(rs, "cs_employees").rename(columns={
+    reps["sistema_origen"] = "classicmodels"
+    agents = read_clean(staging_run, "cs_employees").rename(columns={
         "employeenumber": "numero_empleado", "firstname": "nombre",
         "lastname": "apellido"})
-    ecs["sistema_origen"] = "customerservice"
-    ecs["cargo"] = "Agente de Servicio al Cliente"
-    ecs["numero_oficina"] = None
+    agents["sistema_origen"] = "customerservice"
+    agents["cargo"] = "Agente de Servicio al Cliente"
+    agents["numero_oficina"] = None
 
-    compartidos = set(ecm["numero_empleado"]) & set(ecs["numero_empleado"])
-    calidad("empleado_conformidad_fuentes", len(ecm) + len(ecs), len(compartidos),
-            f"numeros de empleado compartidos entre fuentes: {len(compartidos)} "
-            f"-> llave compuesta (numero_empleado, sistema_origen)")
+    shared = set(reps["numero_empleado"]) & set(agents["numero_empleado"])
+    record_quality("empleado_conformidad_fuentes", len(reps) + len(agents), len(shared),
+                   f"employee numbers shared by both sources: {len(shared)} "
+                   f"-> composite key (numero_empleado, sistema_origen)")
 
     cols = ["numero_empleado", "sistema_origen", "nombre", "apellido",
             "email", "cargo", "numero_oficina"]
-    emp = pd.concat([ecm[cols], ecs[cols]], ignore_index=True)
-    publicar_transform(run_id, "Empleado", "dim_empleado", emp,
-                       "union de fuentes, llave compuesta")
+    employees = pd.concat([reps[cols], agents[cols]], ignore_index=True)
+    publish_transform(run_id, "Empleado", "dim_empleado", employees,
+                      "union de fuentes, llave compuesta")
 
 
 # ============================================================
-# CAPAS 6 y 7 - LOAD-READY PUBLISH y LOAD
+# Layers 6 and 7 - Load-Ready Publish and Load
 # ============================================================
 
-def publicar_y_cargar(run_id):
-    print("\n[Capa 6] Load-Ready Publish         (modelo de carga: DIMENSIONES)")
-    print("[Capa 7] Load")
+def publish_and_load(run_id):
+    print("\n[Layer 6] Load-Ready Publish (DIMENSIONES)")
+    print("[Layer 7] Load")
     total = 0
-    for objetivo in ORDEN_CARGA:
-        df = leer_payload("stg_transform", run_id, objetivo=objetivo)
-        insertar("stg_loadready", [
-            {"run_id": run_id, "modelo_carga": "DIMENSIONES", "objetivo": objetivo,
+    for target in LOAD_ORDER:
+        df = read_payload("stg_transform", run_id, objetivo=target)
+        insert("stg_loadready", [
+            {"run_id": run_id, "modelo_carga": "DIMENSIONES", "objetivo": target,
              "nro_fila": i, "payload": p}
-            for i, p in enumerate(filas_json(df), 1)
+            for i, p in enumerate(json_rows(df), 1)
         ])
-        # Las tablas del modelo si se reemplazan en cada carga: el
-        # historial vive en staging, que es no volatil.
+        # Model tables are fully reloaded; history is kept in staging.
         with DW.begin() as con:
-            con.execute(sa.text(f"TRUNCATE TABLE {objetivo} RESTART IDENTITY CASCADE"))
-        df.to_sql(objetivo, DW, if_exists="append", index=False)
+            con.execute(sa.text(f"TRUNCATE TABLE {target} RESTART IDENTITY CASCADE"))
+        df.to_sql(target, DW, if_exists="append", index=False)
         total += len(df)
-        print(f"    {objetivo:<18}{len(df):>6} filas")
+        print(f"    {target:<18}{len(df):>6} rows")
     return total
 
 
 if __name__ == "__main__":
-    rs = ultimo_staging_ok()
-    run_id = abrir_run("dimensiones", run_origen=rs)
-    print(f"ETL de dimensiones - run_id={run_id}, lee Clean Staging del run {rs}")
-    print("Las fuentes NO se leen aqui (dia. 15: read once, write many)")
+    staging_run = last_successful_staging_run()
+    run_id = open_run("dimensiones", source_run=staging_run)
+    print(f"Warehouse ETL, dimensions (layers 5-7) - run_id={run_id}, "
+          f"reading Clean Staging of run {staging_run}")
     try:
-        print("\n[Capa 5] Transformation             (dia. 19: conformar por area)")
-        area_tiempo(run_id)
-        area_organizacion(run_id, rs)
-        area_ventas(run_id, rs)
-        area_cliente(run_id, rs)
-        area_producto(run_id, rs)
-        area_empleado(run_id, rs)
-        escritas = publicar_y_cargar(run_id)
+        print("\n[Layer 5] Transformation")
+        area_time(run_id)
+        area_organization(run_id, staging_run)
+        area_sales(run_id, staging_run)
+        area_customer(run_id, staging_run)
+        area_product(run_id, staging_run)
+        area_employee(run_id, staging_run)
+        written = publish_and_load(run_id)
     except Exception as e:
-        cerrar_run(run_id, "ERROR")
-        registrar_ejecucion(PROCESO, "", "", run_id, 0, 0, 0, "ERROR", str(e)[:500])
+        close_run(run_id, "ERROR")
+        log_execution(PROCESS, "", "", run_id, 0, 0, 0, "ERROR", str(e)[:500])
         raise
-    cerrar_run(run_id, "OK")
-    registrar_ejecucion(
-        PROCESO,
-        "Capas 5 a 7 de Giordano para el modelo de dimensiones: conforma por "
-        "area tematica desde Clean Staging y carga las seis dimensiones.",
-        f"staging_dw.stg_clean (run {rs}); las fuentes no se releen",
-        run_id, escritas, escritas, 0, "OK", resultados_calidad=_calidad,
+    close_run(run_id, "OK")
+    log_execution(
+        PROCESS,
+        "Capas 5 a 7 para el modelo de dimensiones: conforma por area "
+        "tematica desde Clean Staging y carga las seis dimensiones.",
+        f"staging_dw.stg_clean (run {staging_run}); las fuentes no se releen",
+        run_id, written, written, 0, "OK", quality_results=_quality_results,
     )
-    print(f"\nDimensiones cargadas: {escritas} filas.")
+    print(f"\nDimensions loaded: {written} rows.")

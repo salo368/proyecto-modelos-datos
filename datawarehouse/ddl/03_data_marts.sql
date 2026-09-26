@@ -1,58 +1,28 @@
 -- ============================================================
--- Data Marts - Entrega 2
+-- Data marts (schema dm)
 --
--- La Clase 4-5 (diapositiva 12, "Flujo de datos dentro de DW") dibuja
--- tres depositos en cadena:
+-- Views built on top of the star schema in public. Each one raises
+-- the grain and keeps a single subject:
 --
---   ODS  --filtrar detalles, agregar-->  EDW  --agregar, segregar-->  DM
+--   dm.vw_interaccion_cliente_producto  sales and service calls per
+--                                       customer x product x month
+--   dm.vw_ventas_mensuales_linea        effective sales per month x
+--                                       product line
 --
--- y la diapositiva 11 los caracteriza:
---
---   Tipo  Detalle                  Alcance          Uso
---   ODS   maximo nivel de detalle  empresa          tactico, dia a dia
---   EDW   detalle y agregaciones   empresa          tactico y estrategico
---   DM    agregaciones, poco det.  tema especifico  un grupo o unidad
---
--- En este almacen:
---
---   EDW  el modelo estrella del schema public: dim_* y fact_* al grano
---        mas fino, con alcance de toda la empresa (ventas y servicio).
---
---   DM   el schema dm. Cada data mart AGREGA (sube el grano) y SEGREGA
---        (se queda con un tema) a partir del EDW, que son exactamente
---        las dos operaciones rotuladas en la flecha EDW -> DM.
---
---   ODS  no se implementa. Un ODS sirve para consulta operativa del dia
---        a dia sobre dato integrado y reciente, y este proyecto es un
---        pipeline batch sobre dos snapshots estaticos: no hay operacion
---        diaria que consultar. La capa Clean Staging es la que contiene
---        el dato integrado y validado antes del EDW, pero no se expone
---        para consulta.
---
--- Correr DESPUES de 01_dw_schema.sql (las vistas dependen de las tablas).
---
--- Ejecutar con:
---   python datawarehouse/ddl/run_sql.py datawarehouse/ddl/03_data_marts.sql
+-- Run after 01_star_schema.sql.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS dm;
 
--- Se elimina tambien la version anterior, que vivia en public.
-DROP VIEW IF EXISTS public.vw_interaccion_cliente_producto CASCADE;
 DROP VIEW IF EXISTS dm.vw_interaccion_cliente_producto     CASCADE;
 DROP VIEW IF EXISTS dm.vw_ventas_mensuales_linea           CASCADE;
 
 -- ------------------------------------------------------------
--- DM Servicio y Ventas: interaccion cliente x producto x mes
+-- Sales and service per customer x product x month.
 --
--- Agrega: sube del grano de linea de orden y de llamada al grano
---         cliente x producto x mes.
--- Segrega: se queda con un solo tema, la relacion entre lo que un
---         cliente compra y lo que consulta al centro de servicio.
---
--- Es el data mart que justifica haber integrado las dos fuentes:
--- responde que productos generan mas llamadas por unidad vendida,
--- pregunta que ninguna fuente contesta por si sola.
+-- Aggregates both facts to the same grain and joins them with a FULL
+-- OUTER JOIN, so it answers which products generate the most service
+-- calls per unit sold.
 -- ------------------------------------------------------------
 CREATE VIEW dm.vw_interaccion_cliente_producto AS
 WITH ventas AS (
@@ -94,14 +64,8 @@ JOIN public.dim_cliente  c ON c.cliente_key  = COALESCE(v.cliente_key,  ll.clien
 JOIN public.dim_producto p ON p.producto_key = COALESCE(v.producto_key, ll.producto_key);
 
 -- ------------------------------------------------------------
--- DM Ventas: desempeno mensual por linea de producto
---
--- Agrega: de linea de orden a mes x linea de producto.
--- Segrega: solo ventas efectivas (excluye Cancelled, Disputed y On Hold
---          mediante dim_estado_orden.es_efectiva).
---
--- Es el data mart que consumiria un area comercial: cuanto se vende,
--- con que margen y en que familia de productos, mes a mes.
+-- Monthly sales performance per product line. Effective orders only
+-- (dim_estado_orden.es_efectiva excludes Cancelled, Disputed, On Hold).
 -- ------------------------------------------------------------
 CREATE VIEW dm.vw_ventas_mensuales_linea AS
 SELECT t.anio,

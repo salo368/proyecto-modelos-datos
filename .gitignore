@@ -1,23 +1,15 @@
-# Entornos virtuales
+# Virtual environments
 .venv/
 venv/
 __pycache__/
 *.pyc
 
-# Credenciales (NUNCA subir a GitHub)
-# .env.example si se versiona: trae los valores del stack local de Docker,
-# que son publicos a proposito y no dan acceso a nada remoto.
+# Credentials. .env.example is versioned: it only holds the local
+# docker-compose values, which grant access to nothing remote.
 .env
 .env.*
 !.env.example
 
-# Archivos temporales de Word
-~$*
-~WRL*.tmp
-
-# Backups de draw.io
-.$*.bkp
-
-# Sistema operativo
+# Operating system
 .DS_Store
 Thumbs.db

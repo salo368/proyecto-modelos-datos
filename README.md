@@ -1,165 +1,143 @@
 # Proyecto Final — Modelos y Persistencia de Datos
 
-**Pontificia Universidad Javeriana — Modelado y persistencia de datos — 2026-01**
+**Pontificia Universidad Javeriana — Modelos y Persistencia de Datos — 2026-01**
 
 Elaborado por: Luis Daniel Sierra Pineda, David Cortes, Salomón Saenz
 
+Este repositorio integra dos fuentes de datos de una misma organización y construye sobre ellas:
+
+1. **Descubrimiento y perfilamiento** de las dos fuentes (Entrega 1).
+2. Un **repositorio de metadatos** con metadatos técnicos, de negocio, de linaje, de procesos, de calidad y de uso (Entregas 1 y 2).
+3. Un **almacén de datos dimensional**, cargado por un ETL por capas (Entrega 2).
+4. **Reportes** en Metabase que leen solo el almacén (Entrega 2).
+
+Los enunciados oficiales están en [`docs/enunciados/`](docs/enunciados/).
+
+## Fuentes
+
+| Fuente | Motor | Contenido | Dump |
+|---|---|---|---|
+| `classicmodels` | MySQL 8 | Ventas: clientes, empleados, oficinas, órdenes, detalle de órdenes, pagos, productos y líneas de producto (8 tablas) | [`sources/mysqlsampledatabase.sql`](sources/mysqlsampledatabase.sql) |
+| `customerservice` | PostgreSQL 16 | Centro de atención: llamadas, clientes, empleados, productos y productos de interés por cliente (5 tablas) | [`sources/customerservice.sql`](sources/customerservice.sql) |
+
+Los dos dumps son los originales del curso y no se modifican.
+
 ## Arranque rápido
 
-Todo el proyecto corre en local, sin cuentas en la nube ni credenciales. Solo hacen falta **Docker** y **Python 3.9 o superior**.
+Solo hace falta **Docker** y **Python 3.9 o superior**.
 
 ```bash
-git clone <url-del-repositorio>
-cd PROYECTOFINAL_MODELOS_Y_PERSISTENCIA_DE_DATOS_SALUDA
 python run_all.py
 ```
 
-Eso es todo. El script levanta las dos fuentes, el repositorio de metadatos, el almacén de datos y Metabase; restaura las bases desde los dumps de `sources/`; y ejecuta el pipeline completo de las dos entregas. Funciona igual en Windows, macOS y Linux.
+El script levanta el stack de [`docker-compose.yml`](docker-compose.yml), restaura las dos fuentes desde `sources/`, crea `.env` a partir de [`.env.example`](.env.example), instala las dependencias de [`requirements.txt`](requirements.txt) y ejecuta los 26 pasos del pipeline. La primera vez tarda algunos minutos mientras descarga las imágenes de Docker.
 
-Cuando termina:
+| Opción | Qué hace |
+|---|---|
+| `python run_all.py` | Levanta el stack y ejecuta el pipeline completo |
+| `python run_all.py --etl-only` | No toca Docker; ejecuta el pipeline contra las bases del `.env` |
+| `python run_all.py --reset` | Borra los volúmenes de Docker y reconstruye todo desde cero |
+| `python run_all.py --down` | Apaga el stack conservando los datos |
 
-| Qué | Dónde | Acceso |
+Al terminar:
+
+| Servicio | Dirección | Usuario / clave |
 |---|---|---|
-| Reportes (Metabase) | http://localhost:3000 | `grupo@javeriana.edu.co` / `Javeriana2026!` |
+| Metabase (reportes) | http://localhost:3000 | `grupo@javeriana.edu.co` / `Javeriana2026!` |
 | Almacén de datos | `localhost:5434`, base `dw` | `postgres` / `javeriana` |
 | Repositorio de metadatos | `localhost:5434`, base `metadata` | `postgres` / `javeriana` |
-| classicmodels (MySQL) | `localhost:3307` | `root` / `javeriana` |
-| customerservice (PostgreSQL) | `localhost:5433` | `postgres` / `javeriana` |
+| classicmodels | `localhost:3307` | `root` / `javeriana` |
+| customerservice | `localhost:5433`, base `customerservice` | `postgres` / `javeriana` |
 
-Otros comandos:
+El almacén y el repositorio de metadatos son dos bases separadas dentro de la misma instancia de PostgreSQL. [`tools/check_connections.py`](tools/check_connections.py) verifica que las cuatro cadenas del `.env` respondan.
 
-```bash
-python run_all.py --apagar     # apaga el stack sin perder datos
-python run_all.py --reiniciar  # borra los datos y empieza de cero
-python run_all.py --solo-etl   # no toca Docker, solo recarga los datos
-```
+## Qué hace el pipeline
 
-> La primera ejecución tarda varios minutos: descarga las imágenes de Docker y MySQL restaura `classicmodels` al arrancar. Las siguientes son mucho más rápidas.
+`run_all.py` ejecuta estos pasos en orden y se detiene en el primero que falle:
 
-## Estado del proyecto
-
-| Entrega | Qué construye | Documento |
+| # | Grupo | Pasos |
 |---|---|---|
-| **Entrega 1** | Descubrimiento, perfilamiento y repositorio de metadatos sobre las dos fuentes | [`Documento_Entrega_1.md`](docs/Entrega_1/Documento_Entrega_1.md) |
-| **Entrega 2** | Almacén de datos dimensional, ETL, metadatos del almacén y reportes | [`Documento_Entrega_2.md`](docs/Entrega_2/Documento_Entrega_2.md) |
+| 1–4 | Perfilamiento de las fuentes | Metadatos técnicos y perfil por columna desde los dumps, reporte de columnas y llaves, integridad referencial y correspondencia entre fuentes, descubrimiento de relaciones no declaradas |
+| 5–11 | Repositorio de metadatos | Esquema base y de staging, ETL de metadatos técnicos, glosario de negocio y linaje semántico, extensión del almacén, reglas de calidad, extensión de uso |
+| 12–17 | Almacén de datos | Modelo estrella, capas de staging y data marts; ETL de staging (capas 1–4), de dimensiones y de hechos (capas 5–7) |
+| 18–19 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
+| 20–21 | Pruebas | Totales del almacén contra las fuentes y camino de rechazo de la capa de calidad |
+| 22 | Reportes | Dashboard de Metabase |
+| 23–25 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
+| 26 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
 
-Para la Entrega 2 hay además:
+Todos los pasos se pueden volver a ejecutar sobre bases ya cargadas: los DDL del repositorio usan `IF NOT EXISTS`, las cargas usan *upsert* o reemplazan el contenido, y las tablas de staging solo agregan filas nuevas bajo un `run_id`.
 
-- [Las capas de la solución](docs/Entrega_2/CAPAS.md) — referencia rápida de la arquitectura por capas y los principios que la sustentan
-- [Plan de ejecución](docs/Entrega_2/PLAN.md)
-- [Guía paso a paso](docs/Entrega_2/GUIA_PASO_A_PASO.md) — pensada para quien nunca ha construido un almacén de datos
-
-## 1. Objetivo del proyecto
-
-El proyecto integra dos fuentes de datos de una organización —una base de datos transaccional de ventas y una base de datos de atención al cliente— e implementa primero la capa de persistencia de un repositorio de metadatos (Entrega 1) y después una solución de Inteligencia de Negocios sobre ambas (Entrega 2).
-
-La **Entrega 1** se estructuró según su enunciado ([`Proyecto - Entrega 1.pdf`](docs/enunciados/Proyecto%20-%20Entrega%201.pdf)) en cuatro frentes: Descubrimiento de Metadatos, Perfilamiento de Datos, Repositorio de Metadatos y Consultas.
-
-La **Entrega 2** ([`Proyecto - Entrega 2.pdf`](docs/enunciados/Proyecto%20-%20Entrega%202.pdf)) construye sobre eso un almacén dimensional en constelación: `fact_ventas` al grano de línea de orden y `fact_llamadas_servicio` al grano de llamada, unidos por las dimensiones conformadas `dim_cliente`, `dim_producto` y `dim_tiempo`. Esa conformación es lo que permite responder la pregunta que ninguna fuente contesta sola: **qué productos generan más llamadas de servicio por unidad vendida**.
-
-![Modelo dimensional del almacén](docs/Entrega_2/img/dw_modelo_dimensional.png)
-
-## 2. Fuentes de datos
-
-### 2.1 classicmodels (MySQL)
-
-Base de datos transaccional que soporta el proceso de ventas de la compañía: clientes, empleados/representantes de ventas, oficinas, órdenes de compra (encabezado y detalle), pagos y el catálogo de productos organizado por líneas. El respaldo de esta base se encuentra en [`sources/mysqlsampledatabase.sql`](sources/mysqlsampledatabase.sql).
-
-Diagrama entidad-relación de classicmodels (generado con eralchemy2):
-
-![Diagrama entidad-relación de classicmodels](profiling/database_mysql.png)
-
-### 2.2 customerservice (PostgreSQL)
-
-Base de datos del centro de atención al cliente: registra las llamadas de servicio, relacionando cada llamada con el empleado que la atendió, el cliente que llamó y el producto sobre el cual se hizo la consulta, además de un catálogo de clientes, empleados y productos propio de este sistema. El respaldo de esta base se encuentra en [`sources/customerservice.sql`](sources/customerservice.sql).
-
-Diagrama entidad-relación de customerservice (generado con eralchemy2):
-
-![Diagrama entidad-relación de customerservice](profiling/database_POSTGRES.png)
-
-## 3. Descubrimiento y perfilamiento
-
-Sobre ambas fuentes se documentaron los metadatos técnicos (tablas, columnas, tipos de dato, llaves primarias y foráneas) y las reglas de negocio implícitas en ellas, identificando las estructuras que las dos fuentes tienen en común (clientes, empleados, productos) frente a las que son exclusivas de cada una. Adicionalmente se perfiló cada columna de las 13 tablas —rangos de valores, patrones de texto, porcentaje de nulos, integridad referencial y correspondencia/duplicados entre las estructuras comunes—, incluyendo un algoritmo de descubrimiento de relaciones implícitas entre columnas de las dos bases de datos, que no pueden declararse como llave foránea real por pertenecer a motores distintos. Los datos crudos que soportan este análisis quedaron en la carpeta [`output/`](profiling/output/) (`metadata_tecnico.csv`, `perfilamiento.csv`, `relaciones_fk.csv`, `correspondencia_entidades.csv`, `relaciones_inferidas.csv`) y los reportes de perfilamiento generados con `ydata-profiling` en [`profiling/reports/`](profiling/reports/), [`profiling/reports_mysql/`](profiling/reports_mysql/) y [`profiling/reports_comparacion/`](profiling/reports_comparacion/).
-
-## 4. Repositorio de metadatos
-
-El repositorio se diseñó como una base de datos relacional en PostgreSQL, alojada en un servicio independiente de Railway, compuesta por seis tablas: tres para el metadato técnico (`data_source`, `db_table`, `db_column`), dos para el metadato de negocio (`business_entity`, `business_attribute`), más una tabla puente (`column_business_mapping`) que materializa el linaje semántico conectando cada columna técnica con su atributo de negocio correspondiente.
-
-La arquitectura del repositorio es **híbrida**, siguiendo el marco DAMA-DMBOK: a nivel conceptual es distribuida, pues classicmodels y customerservice siguen siendo el sistema de registro autoritativo de su propio metadato técnico; a nivel físico es centralizada, dado que todo el metadato consolidado —técnico, de negocio y de linaje— reside en una única base de datos consultable con SQL plano.
-
-Diagrama físico del repositorio de metadatos (generado con eralchemy2 a partir del esquema real):
-
-![Diagrama físico del repositorio de metadatos](profiling/metadata_repository_erd.png)
-
-El DDL del repositorio está en [`metadata_repository/ddl/metadata_repository_ddl.sql`](metadata_repository/ddl/metadata_repository_ddl.sql), y el DDL del área de staging del ETL en [`metadata_repository/ddl/metadata_staging_ddl.sql`](metadata_repository/ddl/metadata_staging_ddl.sql). El backup completo del repositorio con todos los datos ya poblados (metadato técnico, de negocio y linaje) está en [`metadata_repository/backup/metadata_repo_backup.sql`](metadata_repository/backup/metadata_repo_backup.sql) y puede restaurarse sobre un servicio PostgreSQL vacío sin necesidad de correr de nuevo el ETL.
-
-## 5. Proceso ETL de metadatos técnicos
-
-La integración de metadatos técnicos hacia el repositorio se automatizó con un proceso ETL en Python ([`metadata_repository/etl/etl_metadata_repository.py`](metadata_repository/etl/etl_metadata_repository.py), usando SQLAlchemy junto con pandas), construido en cinco etapas físicamente persistidas en el schema `staging` del repositorio, siguiendo la arquitectura de integración de datos de Anthony Giordano (*Data Integration Blueprint and Modeling*):
-
-| Etapa (Giordano) | Propósito | Función en el script | Tabla de staging |
-|---|---|---|---|
-| Extract (Landing) | Copia 1:1 del diccionario de datos de las dos fuentes, obtenida con `SQLAlchemy.inspect()`. | `extract()` | `staging.stg_extract` |
-| Data Quality | Valida completitud, contradicciones (llave primaria marcada como nullable) y duplicados; marca cada fila como `OK` o `RECHAZADO`. | `data_quality()` | `staging.stg_dq` |
-| Transform | Normaliza los tipos de dato entre motores, conservando también el tipo nativo original en una columna separada; enriquece cada fila con la descripción de negocio de su tabla. | `transform()` | `staging.stg_transform` |
-| Load Ready Publish | Deja los datos en la forma exacta que se va a cargar al repositorio final. | `load_ready_publish()` | `staging.stg_loadready` |
-| Target Load | Upsert idempotente (`INSERT ... ON CONFLICT DO UPDATE`) hacia `data_source`, `db_table` y `db_column`; resuelve en una segunda pasada las llaves foráneas autorreferenciadas. | `load()` | `data_source` / `db_table` / `db_column` |
-
-Cada ejecución del ETL queda identificada con un `run_id`, lo que permite auditar el historial completo del proceso directamente en las tablas de staging, sin sobrescribir corridas anteriores.
-
-El metadato de negocio y el linaje semántico, en cambio, se cargan de forma manual mediante [`metadata_repository/etl/business_metadata_seed.sql`](metadata_repository/etl/business_metadata_seed.sql), tal como lo exige el enunciado del proyecto. Ese script valida previamente que el metadato técnico ya haya sido cargado por el ETL, y al final reporta cualquier discrepancia entre los mapeos de linaje esperados y los realmente insertados, para detectar de forma temprana una columna renombrada en alguna de las fuentes.
-
-## 6. Consultas al repositorio
-
-[`metadata_repository/queries/consultas_repositorio.sql`](metadata_repository/queries/consultas_repositorio.sql) contiene las seis consultas SQL que responden las preguntas planteadas en el enunciado: tablas por fuente, columnas de una tabla específica, glosario de entidades de negocio, atributos de una entidad específica, ubicación física de cada entidad de negocio y linaje semántico completo de la tabla `cs_customers`.
-
-## 7. Estructura del repositorio
-
-El repositorio está organizado por dominio, no por entrega, de modo que cada entrega nueva agrega archivos en la carpeta que le corresponde en vez de crear una capa paralela.
-
-```
-├── README.md                          Este archivo
-├── docs/
-│   ├── enunciados/                    PDF oficiales del curso
-│   ├── Entrega_1/
-│   │   └── Documento_Entrega_1.md     Documento formal de la Entrega 1
-│   └── Entrega_2/
-│       ├── Documento_Entrega_2.md     Documento formal de la Entrega 2
-│       ├── PLAN.md                    Plan de ejecución
-│       ├── GUIA_PASO_A_PASO.md        Guía detallada de implementación
-│       └── img/                       Diagramas físicos y capturas
-├── sources/                           Respaldos de las dos fuentes
-│   ├── mysqlsampledatabase.sql        classicmodels (MySQL)
-│   └── customerservice.sql            customerservice (PostgreSQL)
-├── metadata_repository/               Repositorio de metadatos
-│   ├── ddl/                           esquema base + extensiones del almacén y de uso (Entrega 2)
-│   ├── etl/                           carga técnica, de negocio, del almacén, de uso y reglas de calidad
-│   ├── queries/                       las 6 del enunciado + linaje e impacto
-│   └── backup/                        metadata_repo_backup.sql (18 tablas)
-├── datawarehouse/                     Almacén de datos (Entrega 2)
-│   ├── ddl/                           01 modelo estrella (EDW), 02 capas de Giordano, 03 data marts
-│   ├── etl/                           staging (capas 1-4), dimensiones y hechos (capas 5-7)
-│   ├── queries/                       validación, prueba del camino de rechazo, consultas de negocio
-│   └── backup/                        generador, prueba de restauración, dw_backup.sql
-├── profiling/                         Descubrimiento y perfilamiento (Entrega 1)
-│   ├── discover_and_profile.py, discover_relationships.py, relational_profiling.py
-│   ├── compare_common_entities.py, mysqlprofile.py, profile.py, report_keys.py
-│   ├── discovery_mysql.sql / discovery_postgres.sql
-│   ├── generate_discovery_section.py / generate_profiling_section.py
-│   ├── classicmodels_erd              Fuente Graphviz (.dot) del ER de classicmodels
-│   ├── database_mysql.png / database_POSTGRES.png / metadata_repository_erd.png
-│   ├── output/                        Resultados crudos en CSV y Markdown
-│   └── reports/ , reports_mysql/ , reports_comparacion/   Reportes de ydata-profiling
-└── reports/                           construir_dashboard.py + capturas (Metabase)
+```mermaid
+flowchart LR
+    CM[(classicmodels<br/>MySQL)] --> P[profiling/]
+    CS[(customerservice<br/>PostgreSQL)] --> P
+    CM --> MR[(metadata<br/>repositorio de metadatos)]
+    CS --> MR
+    CM --> ETL[datawarehouse/etl<br/>7 capas]
+    CS --> ETL
+    ETL --> DW[(dw<br/>almacén)]
+    ETL -. ejecuciones y calidad .-> MR
+    DW -. catálogo, linaje y uso .-> MR
+    DW --> MB[Metabase]
 ```
 
-## 8. Cómo reproducir el proceso
+## Estructura del repositorio
 
-1. Restaurar `sources/mysqlsampledatabase.sql` en un servicio MySQL y `sources/customerservice.sql` en un servicio PostgreSQL (se recomienda Railway).
-2. Crear un tercer servicio PostgreSQL vacío para el repositorio de metadatos y correr, en orden, `metadata_repository/ddl/metadata_repository_ddl.sql` y `metadata_repository/ddl/metadata_staging_ddl.sql`.
-3. Definir en un archivo `.env` (no incluido en el repositorio por seguridad) las variables `URL_MYSQLDATABASE`, `DATABASE_URL` y `METADATA_REPO_URL` con las cadenas de conexión de los tres servicios.
-4. Ejecutar `python metadata_repository/etl/etl_metadata_repository.py` para cargar el metadato técnico.
-5. Ejecutar `metadata_repository/etl/business_metadata_seed.sql` contra la base del repositorio para cargar el metadato de negocio y el linaje semántico.
-6. Ejecutar las consultas de `metadata_repository/queries/consultas_repositorio.sql` contra la base del repositorio para verificar las seis respuestas del enunciado.
+```
+├── run_all.py                  Orquestador del proyecto completo
+├── docker-compose.yml          MySQL, PostgreSQL (fuente), PostgreSQL (metadata + dw) y Metabase
+├── docker/init-dw.sql          Crea la base 'dw' junto a 'metadata'
+├── .env.example                Cadenas de conexión del stack local
+├── requirements.txt            Dependencias de Python del pipeline
+├── sources/                    Dumps originales de las dos fuentes
+├── profiling/                  Descubrimiento y perfilamiento de las fuentes      → profiling/README.md
+├── metadata_repository/        Repositorio de metadatos: DDL, seeds, ETL, consultas, backup
+│                                                                                  → metadata_repository/README.md
+├── datawarehouse/              Almacén: DDL, ETL, consultas, pruebas, backup      → datawarehouse/README.md
+├── reports/                    Dashboard de Metabase                              → reports/README.md
+├── tools/                      Utilidades compartidas (ver abajo)
+└── docs/
+    ├── enunciados/             Enunciados oficiales de las entregas
+    └── img/                    Diagramas generados desde las bases (.dot y .png)
+```
 
-> Alternativa rápida: para saltarse los pasos 2 a 5 y trabajar directamente con el repositorio ya poblado, basta con restaurar [`metadata_repository/backup/metadata_repo_backup.sql`](metadata_repository/backup/metadata_repo_backup.sql) sobre un PostgreSQL vacío con `psql "$METADATA_REPO_URL" -f metadata_repo_backup.sql`.
+| Utilidad | Uso |
+|---|---|
+| [`tools/run_sql.py`](tools/run_sql.py) | Ejecuta un archivo `.sql` contra la base indicada por una variable del `.env` (por defecto `DW_URL`) |
+| [`tools/check_connections.py`](tools/check_connections.py) | Verifica las cuatro conexiones del `.env` |
+| [`tools/generate_backup.py`](tools/generate_backup.py) | Genera el backup SQL del almacén (`dw`) o del repositorio (`metadata`) |
+| [`tools/generate_diagrams.py`](tools/generate_diagrams.py) | Genera los diagramas de `docs/img/` introspeccionando las bases; renderiza con Graphviz local o con la imagen Docker `nshine/dot` |
+
+## Convención de idioma
+
+- **En español**: todo lo que vive en las bases de datos o se deriva de las fuentes — nombres de tablas y columnas del almacén y del repositorio (`fact_ventas`, `dim_cliente`, `usage_consulta`), valores guardados (reglas de calidad, descripciones, linaje), archivos de salida del perfilamiento, títulos de reportes y diagramas, y esta documentación.
+- **En inglés**: el código — nombres de archivos, funciones, variables, comentarios, docstrings y mensajes de consola.
+
+## Correspondencia con los enunciados
+
+| Entrega | Requisito | Dónde está |
+|---|---|---|
+| 1 | Descubrimiento: metadatos técnicos, estructuras comunes y diferencias | [`profiling/`](profiling/README.md), `profiling/output/metadata_tecnico.csv`, `columnas_por_tabla.md`, `comparacion_entidades_comunes.csv` |
+| 1 | Perfilamiento: rangos, patrones de texto, % de nulos, correspondencia y duplicados | `profiling/output/perfilamiento.csv`, `correspondencia_entidades.csv`, `relaciones_fk.csv`, `relaciones_inferidas.csv`, `profiling/reports/` |
+| 1 | Repositorio de metadatos con metadatos técnicos cargados por ETL | [`metadata_repository/`](metadata_repository/README.md): `ddl/01_core_schema.sql`, `etl/etl_source_metadata.py` |
+| 1 | Metadatos de negocio y linaje semántico | `metadata_repository/seeds/business_metadata.sql` |
+| 1 | Las seis consultas | `metadata_repository/queries/required_questions.sql` |
+| 1 | Diagrama físico del repositorio | `docs/img/metadata_core_erd.png` |
+| 2 | Hecho diseñado y diseño físico del almacén | [`datawarehouse/`](datawarehouse/README.md): `ddl/01_star_schema.sql`, `docs/img/dw_star_schema.png` |
+| 2 | Construcción del almacén y la base dimensional | `datawarehouse/ddl/`, data marts en `ddl/03_data_marts.sql` |
+| 2 | Metadatos del almacén y diagrama físico del repositorio completo | `metadata_repository/ddl/03_dw_extension.sql`, `04_usage_extension.sql`, `docs/img/metadata_repository_erd.png` |
+| 2 | Procesos ETL y problemas de calidad resueltos | `datawarehouse/etl/`, `metadata_repository/seeds/dq_rules.sql`, `docs/img/etl_pipeline.png` |
+| 2 | Reportes conectados al almacén | [`reports/`](reports/README.md) |
+| 1 y 2 | Backups | `metadata_repository/backup/metadata_repo_backup.sql`, `datawarehouse/backup/dw_backup.sql` |
+
+## Herramientas
+
+| Componente | Herramienta |
+|---|---|
+| Fuentes | MySQL 8.0 y PostgreSQL 16 en Docker |
+| Repositorio de metadatos y almacén | PostgreSQL 16 en Docker |
+| ETL, perfilamiento, pruebas y backups | Python 3.11, SQLAlchemy 2, pandas |
+| Reportes HTML de perfilamiento | ydata-profiling |
+| Reportes | Metabase (open source) en Docker |
+| Diagramas | Graphviz |

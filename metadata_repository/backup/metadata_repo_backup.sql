@@ -1,17 +1,12 @@
 -- ============================================================
--- Backup: Repositorio de Metadatos (Entregas 1 y 2)
--- Proyecto: Modelos y Persistencia de Datos - Entrega 2
--- Generado: 2026-09-25
+-- Backup: Repositorio de metadatos
+-- Generated: 2026-09-26 by tools/generate_backup.py
+-- Engine: PostgreSQL 16
 --
--- Motor: PostgreSQL 18 (Railway).
--- Herramienta: script propio en Python con SQLAlchemy.
--- No se uso pg_dump porque el binario local es de PostgreSQL 15 y
--- aborta contra un servidor 18 por incompatibilidad de version.
+-- Restore on an empty database with:
+--   psql "<connection-url>" -f metadata_repository/backup/metadata_repo_backup.sql
 --
--- Restaurar sobre una base vacia con:
---   psql "$URL" -f metadata_repository/backup/metadata_repo_backup.sql
---
--- Contenido:
+-- Contents:
 --   data_source: 2 filas
 --   db_table: 13 filas
 --   db_column: 85 filas
@@ -25,14 +20,14 @@
 --   etl_process: 3 filas
 --   etl_execution: 3 filas
 --   dq_rule: 20 filas
---   dq_result: 18 filas
+--   dq_result: 19 filas
 --   usage_herramienta: 3 filas
 --   usage_consulta: 8 filas
 --   usage_consulta_objeto: 25 filas
 --   usage_acceso_objeto: 8 filas
 -- ============================================================
 
--- Limpieza previa (idempotente)
+-- Drop previous objects
 DROP TABLE IF EXISTS usage_acceso_objeto CASCADE;
 DROP TABLE IF EXISTS usage_consulta_objeto CASCADE;
 DROP TABLE IF EXISTS usage_consulta CASCADE;
@@ -52,179 +47,345 @@ DROP TABLE IF EXISTS db_column CASCADE;
 DROP TABLE IF EXISTS db_table CASCADE;
 DROP TABLE IF EXISTS data_source CASCADE;
 
-CREATE TABLE data_source (
-    source_id SERIAL PRIMARY KEY,
-    source_name VARCHAR(100) NOT NULL,
-    db_engine VARCHAR(50) NOT NULL,
-    description TEXT
+-- ---- metadata_repository/ddl/01_core_schema.sql ----
+-- ============================================================
+-- Metadata repository - core schema
+--
+-- Technical metadata of the two sources (data_source, db_table,
+-- db_column), business metadata (business_entity, business_attribute)
+-- and the semantic lineage that links them (column_business_mapping).
+--
+-- Technical tables are filled by etl/etl_source_metadata.py; business
+-- tables and the lineage mapping by seeds/business_metadata.sql.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- Technical metadata
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS data_source (
+    source_id     SERIAL PRIMARY KEY,
+    source_name   VARCHAR(100) NOT NULL UNIQUE,   -- 'classicmodels', 'customerservice'
+    db_engine     VARCHAR(50)  NOT NULL,           -- 'MySQL', 'PostgreSQL'
+    description   TEXT
 );
 
-CREATE TABLE db_table (
-    table_id SERIAL PRIMARY KEY,
-    source_id INTEGER NOT NULL,
-    schema_name VARCHAR(100) NOT NULL,
-    table_name VARCHAR(100) NOT NULL,
+CREATE TABLE IF NOT EXISTS db_table (
+    table_id          SERIAL PRIMARY KEY,
+    source_id         INTEGER NOT NULL REFERENCES data_source(source_id),
+    schema_name       VARCHAR(100) NOT NULL,
+    table_name        VARCHAR(100) NOT NULL,
     table_description TEXT,
-    row_count_approx INTEGER,
-    loaded_at TIMESTAMP NOT NULL DEFAULT now()
+    row_count_approx  INTEGER,
+    loaded_at         TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (source_id, schema_name, table_name)
 );
 
-CREATE TABLE db_column (
-    column_id SERIAL PRIMARY KEY,
-    table_id INTEGER NOT NULL,
-    column_name VARCHAR(100) NOT NULL,
-    ordinal_position INTEGER,
-    data_type VARCHAR(100) NOT NULL,
-    native_data_type VARCHAR(150),
-    is_nullable BOOLEAN NOT NULL DEFAULT true,
-    is_primary_key BOOLEAN NOT NULL DEFAULT false,
-    is_foreign_key BOOLEAN NOT NULL DEFAULT false,
-    fk_ref_column_id INTEGER,
-    loaded_at TIMESTAMP NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS db_column (
+    column_id         SERIAL PRIMARY KEY,
+    table_id          INTEGER NOT NULL REFERENCES db_table(table_id) ON DELETE CASCADE,
+    column_name       VARCHAR(100) NOT NULL,
+    ordinal_position  INTEGER,
+    data_type         VARCHAR(100) NOT NULL,   -- type normalised across engines
+    native_data_type  VARCHAR(150),            -- type as reported by the source engine
+    is_nullable       BOOLEAN NOT NULL DEFAULT TRUE,
+    is_primary_key    BOOLEAN NOT NULL DEFAULT FALSE,
+    is_foreign_key    BOOLEAN NOT NULL DEFAULT FALSE,
+    fk_ref_column_id  INTEGER REFERENCES db_column(column_id),
+    loaded_at         TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (table_id, column_name)
 );
 
-CREATE TABLE business_entity (
-    entity_id SERIAL PRIMARY KEY,
-    entity_name VARCHAR(150) NOT NULL,
-    entity_description TEXT NOT NULL,
-    data_domain VARCHAR(150) NOT NULL
+-- ------------------------------------------------------------
+-- Business metadata (entered manually)
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS business_entity (
+    entity_id           SERIAL PRIMARY KEY,
+    entity_name          VARCHAR(150) NOT NULL UNIQUE,
+    entity_description   TEXT NOT NULL,
+    data_domain          VARCHAR(150) NOT NULL
 );
 
-CREATE TABLE business_attribute (
-    attribute_id SERIAL PRIMARY KEY,
-    entity_id INTEGER NOT NULL,
-    attribute_name VARCHAR(150) NOT NULL,
-    attribute_definition TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS business_attribute (
+    attribute_id         SERIAL PRIMARY KEY,
+    entity_id            INTEGER NOT NULL REFERENCES business_entity(entity_id) ON DELETE CASCADE,
+    attribute_name       VARCHAR(150) NOT NULL,
+    attribute_definition TEXT NOT NULL,
+    UNIQUE (entity_id, attribute_name)
 );
 
-CREATE TABLE column_business_mapping (
-    mapping_id SERIAL PRIMARY KEY,
-    column_id INTEGER NOT NULL,
-    attribute_id INTEGER NOT NULL
+-- ------------------------------------------------------------
+-- Semantic lineage: technical column <-> business attribute
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS column_business_mapping (
+    mapping_id    SERIAL PRIMARY KEY,
+    column_id     INTEGER NOT NULL REFERENCES db_column(column_id) ON DELETE CASCADE,
+    attribute_id  INTEGER NOT NULL REFERENCES business_attribute(attribute_id) ON DELETE CASCADE,
+    UNIQUE (column_id, attribute_id)
 );
 
-CREATE TABLE dw_object (
-    dw_object_id SERIAL PRIMARY KEY,
-    object_name VARCHAR(100) NOT NULL,
-    object_type VARCHAR(20) NOT NULL,
-    grain TEXT,
-    description TEXT NOT NULL,
-    is_conformed BOOLEAN NOT NULL DEFAULT false,
-    scd_type VARCHAR(10),
-    scd_justificacion TEXT,
-    row_count INTEGER,
-    loaded_at TIMESTAMP NOT NULL DEFAULT now()
+-- ------------------------------------------------------------
+-- Indexes for the joins used by queries/required_questions.sql
+-- ------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_db_table_source ON db_table(source_id);
+CREATE INDEX IF NOT EXISTS idx_db_column_table ON db_column(table_id);
+CREATE INDEX IF NOT EXISTS idx_business_attribute_entity ON business_attribute(entity_id);
+CREATE INDEX IF NOT EXISTS idx_mapping_column ON column_business_mapping(column_id);
+CREATE INDEX IF NOT EXISTS idx_mapping_attribute ON column_business_mapping(attribute_id);
+
+-- ---- metadata_repository/ddl/03_dw_extension.sql ----
+-- ============================================================
+-- Metadata repository - data warehouse extension
+--
+-- Adds eight tables so the repository also describes the data
+-- warehouse and the processes that load it:
+--
+--   1. Warehouse structure       dw_object, dw_measure, dw_attribute
+--   2. Source -> DW lineage      dw_lineage
+--   3. ETL operation             etl_process, etl_execution
+--   4. Data quality              dq_rule, dq_result
+--
+-- dw_* tables are filled by etl/etl_dw_metadata.py, dq_rule by
+-- seeds/dq_rules.sql, and etl_process / etl_execution / dq_result by
+-- every run of the warehouse ETL (datawarehouse/etl/common.py).
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1. Warehouse structure
+-- ------------------------------------------------------------
+
+-- Every fact, dimension and data-mart view of the warehouse.
+CREATE TABLE IF NOT EXISTS dw_object (
+    dw_object_id    SERIAL PRIMARY KEY,
+    object_name     VARCHAR(100) NOT NULL UNIQUE,   -- 'fact_ventas', 'dim_cliente'
+    object_type     VARCHAR(20)  NOT NULL,          -- 'FACT' | 'DIMENSION' | 'VIEW'
+    grain           TEXT,                           -- facts and views only
+    description     TEXT NOT NULL,
+    is_conformed    BOOLEAN NOT NULL DEFAULT FALSE, -- dimensions only
+    scd_type        VARCHAR(10),                    -- slowly changing dimension type
+    scd_justificacion TEXT,                         -- why that SCD type was chosen
+    row_count       INTEGER,
+    loaded_at       TIMESTAMP NOT NULL DEFAULT now(),
+    CHECK (object_type IN ('FACT', 'DIMENSION', 'VIEW')),
+    CHECK (scd_type IS NULL OR scd_type IN ('TIPO_1', 'TIPO_2', 'TIPO_3'))
 );
 
-CREATE TABLE dw_measure (
-    dw_measure_id SERIAL PRIMARY KEY,
-    dw_object_id INTEGER NOT NULL,
-    measure_name VARCHAR(100) NOT NULL,
-    data_type VARCHAR(50) NOT NULL,
-    additivity VARCHAR(20) NOT NULL,
-    formula TEXT,
-    description TEXT
+-- Measures of each fact. additivity tells a BI tool whether the column
+-- can be summed across every dimension, only some, or none.
+CREATE TABLE IF NOT EXISTS dw_measure (
+    dw_measure_id   SERIAL PRIMARY KEY,
+    dw_object_id    INTEGER NOT NULL REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
+    measure_name    VARCHAR(100) NOT NULL,
+    data_type       VARCHAR(50)  NOT NULL,
+    additivity      VARCHAR(20)  NOT NULL,
+    formula         TEXT,
+    description     TEXT,
+    UNIQUE (dw_object_id, measure_name),
+    CHECK (additivity IN ('ADITIVA', 'SEMI_ADITIVA', 'NO_ADITIVA'))
 );
 
-CREATE TABLE dw_attribute (
+-- Non-measure columns of facts and dimensions, with their role.
+CREATE TABLE IF NOT EXISTS dw_attribute (
     dw_attribute_id SERIAL PRIMARY KEY,
-    dw_object_id INTEGER NOT NULL,
-    attribute_name VARCHAR(100) NOT NULL,
-    data_type VARCHAR(50) NOT NULL,
-    attribute_role VARCHAR(30) NOT NULL,
-    description TEXT
+    dw_object_id    INTEGER NOT NULL REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
+    attribute_name  VARCHAR(100) NOT NULL,
+    data_type       VARCHAR(50)  NOT NULL,
+    attribute_role  VARCHAR(30)  NOT NULL,
+    description     TEXT,
+    UNIQUE (dw_object_id, attribute_name),
+    CHECK (attribute_role IN ('SURROGATE_KEY', 'BUSINESS_KEY', 'FOREIGN_KEY',
+                              'DESCRIPTIVE', 'FLAG', 'DEGENERATE'))
 );
 
-CREATE TABLE dw_lineage (
-    dw_lineage_id SERIAL PRIMARY KEY,
-    source_column_id INTEGER,
-    target_measure_id INTEGER,
-    target_attribute_id INTEGER,
-    transformation_rule TEXT NOT NULL
+-- ------------------------------------------------------------
+-- 2. Source -> DW lineage
+--
+-- Links the source columns catalogued in db_column to the warehouse
+-- field they feed, so lineage runs end to end:
+--
+--   business_attribute <- column_business_mapping <- db_column
+--                                                        |
+--                                                   dw_lineage
+--                                                        |
+--                                          dw_measure / dw_attribute
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dw_lineage (
+    dw_lineage_id       SERIAL PRIMARY KEY,
+    source_column_id    INTEGER REFERENCES db_column(column_id)         ON DELETE SET NULL,
+    target_measure_id   INTEGER REFERENCES dw_measure(dw_measure_id)     ON DELETE CASCADE,
+    target_attribute_id INTEGER REFERENCES dw_attribute(dw_attribute_id) ON DELETE CASCADE,
+    transformation_rule TEXT NOT NULL,
+    -- Each row targets exactly one measure or one attribute.
+    CHECK (
+        (target_measure_id IS NOT NULL AND target_attribute_id IS NULL) OR
+        (target_measure_id IS NULL     AND target_attribute_id IS NOT NULL)
+    )
 );
 
-CREATE TABLE etl_process (
-    etl_process_id SERIAL PRIMARY KEY,
-    process_name VARCHAR(100) NOT NULL,
-    tool VARCHAR(80) NOT NULL,
-    source_systems VARCHAR(200) NOT NULL,
-    target_system VARCHAR(100) NOT NULL,
-    description TEXT
+-- ------------------------------------------------------------
+-- 3. ETL operation
+-- ------------------------------------------------------------
+
+-- Catalogue of warehouse ETL processes and the tool that runs them.
+CREATE TABLE IF NOT EXISTS etl_process (
+    etl_process_id  SERIAL PRIMARY KEY,
+    process_name    VARCHAR(100) NOT NULL UNIQUE,
+    tool            VARCHAR(80)  NOT NULL,
+    source_systems  VARCHAR(200) NOT NULL,
+    target_system   VARCHAR(100) NOT NULL,
+    description     TEXT
 );
 
-CREATE TABLE etl_execution (
+-- Execution log: one row per run of each process.
+CREATE TABLE IF NOT EXISTS etl_execution (
     etl_execution_id SERIAL PRIMARY KEY,
-    etl_process_id INTEGER NOT NULL,
-    run_id INTEGER NOT NULL,
-    started_at TIMESTAMP NOT NULL,
-    finished_at TIMESTAMP,
-    status VARCHAR(20) NOT NULL,
-    rows_read INTEGER,
-    rows_written INTEGER,
-    rows_rejected INTEGER,
-    error_message TEXT
+    etl_process_id   INTEGER NOT NULL REFERENCES etl_process(etl_process_id),
+    run_id           INTEGER NOT NULL,
+    started_at       TIMESTAMP NOT NULL,
+    finished_at      TIMESTAMP,
+    status           VARCHAR(20) NOT NULL,
+    rows_read        INTEGER,
+    rows_written     INTEGER,
+    rows_rejected    INTEGER,
+    error_message    TEXT,
+    CHECK (status IN ('EN_CURSO', 'OK', 'ERROR'))
 );
 
-CREATE TABLE dq_rule (
-    dq_rule_id SERIAL PRIMARY KEY,
-    rule_name VARCHAR(120) NOT NULL,
-    rule_type VARCHAR(40) NOT NULL,
-    criterio_dama VARCHAR(20),
-    clase_dq VARCHAR(10),
-    capa VARCHAR(20),
-    source_column_id INTEGER,
-    expression TEXT NOT NULL,
-    severity VARCHAR(20) NOT NULL,
-    resolution TEXT NOT NULL
+-- ------------------------------------------------------------
+-- 4. Data quality
+--
+-- dq_rule is the catalogue of quality rules; dq_result stores how
+-- each rule performed in a given ETL execution.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dq_rule (
+    dq_rule_id       SERIAL PRIMARY KEY,
+    rule_name        VARCHAR(120) NOT NULL UNIQUE,
+    rule_type        VARCHAR(40)  NOT NULL,   -- technical category of the check
+    criterio_dama    VARCHAR(20),             -- data quality dimension it measures
+    clase_dq         VARCHAR(10),             -- technical or business quality
+    -- Pipeline layer where the rule is evaluated:
+    --   DATA_QUALITY    row by row in the staging ETL; can reject rows
+    --   TRANSFORMATION  profiling finding solved by a modelling decision
+    --   MONITOREO       about warehouse operation, outside the load
+    capa             VARCHAR(20),
+    source_column_id INTEGER REFERENCES db_column(column_id) ON DELETE SET NULL,
+    expression       TEXT NOT NULL,
+    severity         VARCHAR(20) NOT NULL,
+    resolution       TEXT NOT NULL,           -- what the ETL does when the rule fails
+    CHECK (rule_type IN ('COMPLETITUD', 'UNICIDAD', 'INTEGRIDAD', 'RANGO',
+                         'FORMATO', 'COHERENCIA', 'CONFORMIDAD', 'FRESCURA')),
+    CHECK (criterio_dama IS NULL OR criterio_dama IN
+           ('EXACTITUD', 'EXHAUSTIVIDAD', 'CONSISTENCIA', 'OPORTUNIDAD',
+            'RELEVANCIA', 'CONFIANZA')),
+    CHECK (clase_dq IS NULL OR clase_dq IN ('TECNICA', 'NEGOCIO')),
+    CHECK (capa IS NULL OR capa IN ('DATA_QUALITY', 'TRANSFORMATION', 'MONITOREO')),
+    CHECK (severity  IN ('BLOQUEANTE', 'ADVERTENCIA', 'INFORMATIVA'))
 );
 
-CREATE TABLE dq_result (
-    dq_result_id SERIAL PRIMARY KEY,
-    dq_rule_id INTEGER NOT NULL,
-    etl_execution_id INTEGER NOT NULL,
-    evaluated_at TIMESTAMP NOT NULL DEFAULT now(),
-    rows_evaluated INTEGER,
-    rows_failed INTEGER,
-    passed BOOLEAN NOT NULL
+CREATE TABLE IF NOT EXISTS dq_result (
+    dq_result_id     SERIAL PRIMARY KEY,
+    dq_rule_id       INTEGER NOT NULL REFERENCES dq_rule(dq_rule_id)             ON DELETE CASCADE,
+    etl_execution_id INTEGER NOT NULL REFERENCES etl_execution(etl_execution_id) ON DELETE CASCADE,
+    evaluated_at     TIMESTAMP NOT NULL DEFAULT now(),
+    rows_evaluated   INTEGER,
+    rows_failed      INTEGER,
+    passed           BOOLEAN NOT NULL
 );
 
-CREATE TABLE usage_herramienta (
+-- ------------------------------------------------------------
+-- Indexes
+-- ------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_dw_measure_object     ON dw_measure(dw_object_id);
+CREATE INDEX IF NOT EXISTS idx_dw_attribute_object   ON dw_attribute(dw_object_id);
+CREATE INDEX IF NOT EXISTS idx_dw_lineage_source     ON dw_lineage(source_column_id);
+CREATE INDEX IF NOT EXISTS idx_dw_lineage_measure    ON dw_lineage(target_measure_id);
+CREATE INDEX IF NOT EXISTS idx_dw_lineage_attribute  ON dw_lineage(target_attribute_id);
+CREATE INDEX IF NOT EXISTS idx_etl_exec_process      ON etl_execution(etl_process_id);
+CREATE INDEX IF NOT EXISTS idx_dq_result_rule        ON dq_result(dq_rule_id);
+CREATE INDEX IF NOT EXISTS idx_dq_result_execution   ON dq_result(etl_execution_id);
+
+-- ---- metadata_repository/ddl/04_usage_extension.sql ----
+-- ============================================================
+-- Metadata repository - usage metadata extension
+--
+-- Describes how the data warehouse is used:
+--
+--   usage_herramienta      tools that access the warehouse
+--   usage_consulta         known queries, expected frequency, joins
+--   usage_consulta_objeto  which warehouse objects each query reads
+--   usage_acceso_objeto    measured access, taken from the engine's
+--                          own counters (pg_stat_user_tables)
+--
+-- Filled by etl/etl_usage_metadata.py.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS usage_herramienta (
     usage_herramienta_id SERIAL PRIMARY KEY,
-    nombre VARCHAR(80) NOT NULL,
-    tipo VARCHAR(40) NOT NULL,
-    proposito TEXT NOT NULL,
-    acceso VARCHAR(20) NOT NULL
+    nombre           VARCHAR(80)  NOT NULL UNIQUE,
+    tipo             VARCHAR(40)  NOT NULL,
+    proposito        TEXT         NOT NULL,
+    acceso           VARCHAR(20)  NOT NULL,
+    CHECK (tipo   IN ('BI', 'ETL', 'CLIENTE_SQL', 'APLICACION')),
+    CHECK (acceso IN ('LECTURA', 'ESCRITURA', 'AMBOS'))
 );
 
-CREATE TABLE usage_consulta (
+CREATE TABLE IF NOT EXISTS usage_consulta (
     usage_consulta_id SERIAL PRIMARY KEY,
-    nombre VARCHAR(120) NOT NULL,
-    usage_herramienta_id INTEGER NOT NULL,
-    proposito TEXT,
-    frecuencia VARCHAR(20) NOT NULL,
-    nro_joins INTEGER
+    nombre            VARCHAR(120) NOT NULL UNIQUE,
+    usage_herramienta_id INTEGER NOT NULL
+        REFERENCES usage_herramienta(usage_herramienta_id) ON DELETE CASCADE,
+    proposito         TEXT,
+    frecuencia        VARCHAR(20) NOT NULL,   -- expected run frequency
+    nro_joins         INTEGER,                -- number of joins in the query
+    CHECK (frecuencia IN ('CONTINUA', 'DIARIA', 'SEMANAL', 'MENSUAL', 'BAJO_DEMANDA'))
 );
 
-CREATE TABLE usage_consulta_objeto (
-    usage_consulta_id INTEGER,
-    dw_object_id INTEGER,
-    PRIMARY KEY (dw_object_id, usage_consulta_id)
+CREATE TABLE IF NOT EXISTS usage_consulta_objeto (
+    usage_consulta_id INTEGER NOT NULL
+        REFERENCES usage_consulta(usage_consulta_id) ON DELETE CASCADE,
+    dw_object_id      INTEGER NOT NULL
+        REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
+    PRIMARY KEY (usage_consulta_id, dw_object_id)
 );
 
-CREATE TABLE usage_acceso_objeto (
-    usage_acceso_id SERIAL PRIMARY KEY,
-    dw_object_id INTEGER NOT NULL,
-    medido_en TIMESTAMP NOT NULL DEFAULT now(),
-    lecturas_secuenciales BIGINT,
-    filas_leidas_secuencial BIGINT,
-    lecturas_por_indice BIGINT,
-    filas_insertadas BIGINT,
-    filas_actualizadas BIGINT,
-    filas_borradas BIGINT
+-- Snapshot of pg_stat_user_tables for each warehouse table. A high
+-- lecturas_secuenciales against lecturas_por_indice means queries scan
+-- the whole table.
+CREATE TABLE IF NOT EXISTS usage_acceso_objeto (
+    usage_acceso_id       SERIAL PRIMARY KEY,
+    dw_object_id          INTEGER NOT NULL
+        REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
+    medido_en             TIMESTAMP NOT NULL DEFAULT now(),
+    lecturas_secuenciales BIGINT,   -- seq_scan
+    filas_leidas_secuencial BIGINT, -- seq_tup_read
+    lecturas_por_indice   BIGINT,   -- idx_scan
+    filas_insertadas      BIGINT,   -- n_tup_ins
+    filas_actualizadas    BIGINT,   -- n_tup_upd
+    filas_borradas        BIGINT    -- n_tup_del
 );
+
+CREATE INDEX IF NOT EXISTS idx_usage_acceso_objeto ON usage_acceso_objeto(dw_object_id);
+CREATE INDEX IF NOT EXISTS idx_usage_consulta_herr ON usage_consulta(usage_herramienta_id);
+
+-- Usage profile per warehouse object: declared queries vs measured reads.
+CREATE OR REPLACE VIEW vw_perfil_uso AS
+SELECT o.object_name,
+       o.object_type,
+       COUNT(DISTINCT co.usage_consulta_id) AS consultas_declaradas,
+       COALESCE(MAX(a.lecturas_secuenciales), 0) AS lecturas_secuenciales,
+       COALESCE(MAX(a.lecturas_por_indice),   0) AS lecturas_por_indice,
+       MAX(a.medido_en) AS ultima_medicion
+FROM dw_object o
+LEFT JOIN usage_consulta_objeto co ON co.dw_object_id = o.dw_object_id
+LEFT JOIN usage_acceso_objeto   a  ON a.dw_object_id  = o.dw_object_id
+GROUP BY o.object_name, o.object_type
+ORDER BY lecturas_secuenciales DESC, o.object_name;
 
 -- ============================================================
--- Datos
+-- Data
 -- ============================================================
 
 -- data_source: 2 filas
@@ -234,107 +395,107 @@ INSERT INTO data_source (source_id, source_name, db_engine, description) VALUES
 
 -- db_table: 13 filas
 INSERT INTO db_table (table_id, source_id, schema_name, table_name, table_description, row_count_approx, loaded_at) VALUES
-    (1, 1, 'classicmodels', 'customers', 'Clientes de la compania que realizan ordenes de compra.', 122, '2026-09-26 04:57:20.032602'),
-    (2, 1, 'classicmodels', 'employees', 'Empleados de la compania, incluye representantes de ventas y su jerarquia.', 23, '2026-09-26 04:57:20.032602'),
-    (3, 1, 'classicmodels', 'offices', 'Oficinas o sedes fisicas de la compania.', 7, '2026-09-26 04:57:20.032602'),
-    (4, 1, 'classicmodels', 'orderdetails', 'Detalle (lineas) de cada orden de compra: producto, cantidad y precio.', 2996, '2026-09-26 04:57:20.032602'),
-    (5, 1, 'classicmodels', 'orders', 'Encabezado de las ordenes de compra realizadas por los clientes.', 326, '2026-09-26 04:57:20.032602'),
-    (6, 1, 'classicmodels', 'payments', 'Pagos realizados por los clientes asociados a sus ordenes de compra.', 273, '2026-09-26 04:57:20.032602'),
-    (7, 1, 'classicmodels', 'productlines', 'Lineas o categorias de productos.', 7, '2026-09-26 04:57:20.032602'),
-    (8, 1, 'classicmodels', 'products', 'Catalogo de productos que la compania vende.', 110, '2026-09-26 04:57:20.032602'),
-    (9, 2, 'public', 'cs_customers', 'Clientes registrados en el sistema de call center.', 122, '2026-09-26 04:57:20.032602'),
-    (10, 2, 'public', 'cs_customer_calls', 'Registro de llamadas de servicio al cliente.', 108, '2026-09-26 04:57:20.032602'),
-    (11, 2, 'public', 'cs_employees', 'Empleados que atienden llamadas en el call center.', 30, '2026-09-26 04:57:20.032602'),
-    (12, 2, 'public', 'cs_products', 'Catalogo de productos referenciado en las llamadas de servicio.', 110, '2026-09-26 04:57:20.032602'),
-    (13, 2, 'public', 'cs_customer_products', 'Relacion entre clientes y productos consultados en servicio.', 101, '2026-09-26 04:57:20.032602');
+    (1, 1, 'classicmodels', 'customers', 'Clientes de la compania que realizan ordenes de compra.', 122, '2026-09-26 05:38:32.186625'),
+    (2, 1, 'classicmodels', 'employees', 'Empleados de la compania, incluye representantes de ventas y su jerarquia.', 23, '2026-09-26 05:38:32.186625'),
+    (3, 1, 'classicmodels', 'offices', 'Oficinas o sedes fisicas de la compania.', 7, '2026-09-26 05:38:32.186625'),
+    (4, 1, 'classicmodels', 'orderdetails', 'Detalle (lineas) de cada orden de compra: producto, cantidad y precio.', 2996, '2026-09-26 05:38:32.186625'),
+    (5, 1, 'classicmodels', 'orders', 'Encabezado de las ordenes de compra realizadas por los clientes.', 326, '2026-09-26 05:38:32.186625'),
+    (6, 1, 'classicmodels', 'payments', 'Pagos realizados por los clientes asociados a sus ordenes de compra.', 273, '2026-09-26 05:38:32.186625'),
+    (7, 1, 'classicmodels', 'productlines', 'Lineas o categorias de productos.', 7, '2026-09-26 05:38:32.186625'),
+    (8, 1, 'classicmodels', 'products', 'Catalogo de productos que la compania vende.', 110, '2026-09-26 05:38:32.186625'),
+    (9, 2, 'public', 'cs_customers', 'Clientes registrados en el sistema de call center.', 122, '2026-09-26 05:38:32.186625'),
+    (10, 2, 'public', 'cs_customer_calls', 'Registro de llamadas de servicio al cliente.', 108, '2026-09-26 05:38:32.186625'),
+    (11, 2, 'public', 'cs_employees', 'Empleados que atienden llamadas en el call center.', 30, '2026-09-26 05:38:32.186625'),
+    (12, 2, 'public', 'cs_products', 'Catalogo de productos referenciado en las llamadas de servicio.', 110, '2026-09-26 05:38:32.186625'),
+    (13, 2, 'public', 'cs_customer_products', 'Relacion entre clientes y productos consultados en servicio.', 101, '2026-09-26 05:38:32.186625');
 
 -- db_column: 85 filas
 INSERT INTO db_column (column_id, table_id, column_name, ordinal_position, data_type, native_data_type, is_nullable, is_primary_key, is_foreign_key, fk_ref_column_id, loaded_at) VALUES
-    (1, 1, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (2, 1, 'customerName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (3, 1, 'contactLastName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (4, 1, 'contactFirstName', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (5, 1, 'phone', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (6, 1, 'addressLine1', 6, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (7, 1, 'addressLine2', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (8, 1, 'city', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (9, 1, 'state', 9, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (10, 1, 'postalCode', 10, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (11, 1, 'country', 11, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (13, 1, 'creditLimit', 13, 'DECIMAL', 'DECIMAL(10, 2)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (14, 2, 'employeeNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (15, 2, 'lastName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (16, 2, 'firstName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (17, 2, 'extension', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (18, 2, 'email', 5, 'VARCHAR(100)', 'VARCHAR(100)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (21, 2, 'jobTitle', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (22, 3, 'officeCode', 1, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (23, 3, 'city', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (24, 3, 'phone', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (25, 3, 'addressLine1', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (26, 3, 'addressLine2', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (27, 3, 'state', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (28, 3, 'country', 7, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (29, 3, 'postalCode', 8, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (30, 3, 'territory', 9, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (33, 4, 'quantityOrdered', 3, 'INTEGER', 'INTEGER', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (34, 4, 'priceEach', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (35, 4, 'orderLineNumber', 5, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (36, 5, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (37, 5, 'orderDate', 2, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (38, 5, 'requiredDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (39, 5, 'shippedDate', 4, 'DATE', 'DATE', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (40, 5, 'status', 5, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (41, 5, 'comments', 6, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (44, 6, 'checkNumber', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (45, 6, 'paymentDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (46, 6, 'amount', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (47, 7, 'productLine', 1, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (48, 7, 'textDescription', 2, 'VARCHAR(4000)', 'VARCHAR(4000)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (49, 7, 'htmlDescription', 3, 'TEXT', 'MEDIUMTEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (50, 7, 'image', 4, 'BINARY', 'MEDIUMBLOB', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (51, 8, 'productCode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (52, 8, 'productName', 2, 'VARCHAR(70)', 'VARCHAR(70)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (54, 8, 'productScale', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (55, 8, 'productVendor', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (56, 8, 'productDescription', 6, 'TEXT', 'TEXT', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (57, 8, 'quantityInStock', 7, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (58, 8, 'buyPrice', 8, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (59, 8, 'MSRP', 9, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (60, 9, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (61, 9, 'contactlastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (62, 9, 'contactfirstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (63, 9, 'phone', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (64, 9, 'addressline1', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (65, 9, 'addressline2', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (66, 9, 'city', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (67, 9, 'state', 8, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (68, 9, 'postalcode', 9, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (69, 9, 'country', 10, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (73, 10, 'text', 4, 'VARCHAR(200)', 'VARCHAR(200)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (74, 10, 'date', 5, 'TIMESTAMP', 'TIMESTAMP', FALSE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (75, 11, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (76, 11, 'lastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (77, 11, 'firstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (78, 11, 'email', 4, 'VARCHAR(100)', 'VARCHAR(100)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (79, 12, 'productcode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (80, 12, 'productname', 2, 'VARCHAR(70)', 'VARCHAR(70)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (81, 12, 'productscale', 3, 'VARCHAR(10)', 'VARCHAR(10)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (82, 12, 'productvendor', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (83, 12, 'productdescription', 5, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 04:57:20.032602'),
-    (19, 2, 'officeCode', 6, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, TRUE, 22, '2026-09-26 04:57:20.032602'),
-    (12, 1, 'salesRepEmployeeNumber', 12, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 04:57:20.032602'),
-    (20, 2, 'reportsTo', 7, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 04:57:20.032602'),
-    (31, 4, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 36, '2026-09-26 04:57:20.032602'),
-    (32, 4, 'productCode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 51, '2026-09-26 04:57:20.032602'),
-    (42, 5, 'customerNumber', 7, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 1, '2026-09-26 04:57:20.032602'),
-    (43, 6, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 1, '2026-09-26 04:57:20.032602'),
-    (53, 8, 'productLine', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, TRUE, 47, '2026-09-26 04:57:20.032602'),
-    (70, 10, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 75, '2026-09-26 04:57:20.032602'),
-    (71, 10, 'customernumber', 2, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 60, '2026-09-26 04:57:20.032602'),
-    (72, 10, 'productcode', 3, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, TRUE, 79, '2026-09-26 04:57:20.032602'),
-    (84, 13, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 60, '2026-09-26 04:57:20.032602'),
-    (85, 13, 'productcode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 79, '2026-09-26 04:57:20.032602');
+    (1, 1, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (2, 1, 'customerName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (3, 1, 'contactLastName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (4, 1, 'contactFirstName', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (5, 1, 'phone', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (6, 1, 'addressLine1', 6, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (7, 1, 'addressLine2', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (8, 1, 'city', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (9, 1, 'state', 9, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (10, 1, 'postalCode', 10, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (11, 1, 'country', 11, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (13, 1, 'creditLimit', 13, 'DECIMAL', 'DECIMAL(10, 2)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (14, 2, 'employeeNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (15, 2, 'lastName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (16, 2, 'firstName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (17, 2, 'extension', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (18, 2, 'email', 5, 'VARCHAR(100)', 'VARCHAR(100)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (21, 2, 'jobTitle', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (22, 3, 'officeCode', 1, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (23, 3, 'city', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (24, 3, 'phone', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (25, 3, 'addressLine1', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (26, 3, 'addressLine2', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (27, 3, 'state', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (28, 3, 'country', 7, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (29, 3, 'postalCode', 8, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (30, 3, 'territory', 9, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (33, 4, 'quantityOrdered', 3, 'INTEGER', 'INTEGER', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (34, 4, 'priceEach', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (35, 4, 'orderLineNumber', 5, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (36, 5, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (37, 5, 'orderDate', 2, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (38, 5, 'requiredDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (39, 5, 'shippedDate', 4, 'DATE', 'DATE', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (40, 5, 'status', 5, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (41, 5, 'comments', 6, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (44, 6, 'checkNumber', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (45, 6, 'paymentDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (46, 6, 'amount', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (47, 7, 'productLine', 1, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (48, 7, 'textDescription', 2, 'VARCHAR(4000)', 'VARCHAR(4000)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (49, 7, 'htmlDescription', 3, 'TEXT', 'MEDIUMTEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (50, 7, 'image', 4, 'BINARY', 'MEDIUMBLOB', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (51, 8, 'productCode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (52, 8, 'productName', 2, 'VARCHAR(70)', 'VARCHAR(70)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (54, 8, 'productScale', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (55, 8, 'productVendor', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (56, 8, 'productDescription', 6, 'TEXT', 'TEXT', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (57, 8, 'quantityInStock', 7, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (58, 8, 'buyPrice', 8, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (59, 8, 'MSRP', 9, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (60, 9, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (61, 9, 'contactlastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (62, 9, 'contactfirstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (63, 9, 'phone', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (64, 9, 'addressline1', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (65, 9, 'addressline2', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (66, 9, 'city', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (67, 9, 'state', 8, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (68, 9, 'postalcode', 9, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (69, 9, 'country', 10, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (73, 10, 'text', 4, 'VARCHAR(200)', 'VARCHAR(200)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (74, 10, 'date', 5, 'TIMESTAMP', 'TIMESTAMP', FALSE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (75, 11, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (76, 11, 'lastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (77, 11, 'firstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (78, 11, 'email', 4, 'VARCHAR(100)', 'VARCHAR(100)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (79, 12, 'productcode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (80, 12, 'productname', 2, 'VARCHAR(70)', 'VARCHAR(70)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (81, 12, 'productscale', 3, 'VARCHAR(10)', 'VARCHAR(10)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (82, 12, 'productvendor', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (83, 12, 'productdescription', 5, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 05:38:32.186625'),
+    (19, 2, 'officeCode', 6, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, TRUE, 22, '2026-09-26 05:38:32.186625'),
+    (12, 1, 'salesRepEmployeeNumber', 12, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 05:38:32.186625'),
+    (20, 2, 'reportsTo', 7, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 05:38:32.186625'),
+    (31, 4, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 36, '2026-09-26 05:38:32.186625'),
+    (32, 4, 'productCode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 51, '2026-09-26 05:38:32.186625'),
+    (42, 5, 'customerNumber', 7, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 1, '2026-09-26 05:38:32.186625'),
+    (43, 6, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 1, '2026-09-26 05:38:32.186625'),
+    (53, 8, 'productLine', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, TRUE, 47, '2026-09-26 05:38:32.186625'),
+    (70, 10, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 75, '2026-09-26 05:38:32.186625'),
+    (71, 10, 'customernumber', 2, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 60, '2026-09-26 05:38:32.186625'),
+    (72, 10, 'productcode', 3, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, TRUE, 79, '2026-09-26 05:38:32.186625'),
+    (84, 13, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 60, '2026-09-26 05:38:32.186625'),
+    (85, 13, 'productcode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 79, '2026-09-26 05:38:32.186625');
 
 -- business_entity: 8 filas
 INSERT INTO business_entity (entity_id, entity_name, entity_description, data_domain) VALUES
@@ -480,16 +641,16 @@ INSERT INTO column_business_mapping (mapping_id, column_id, attribute_id) VALUES
 
 -- dw_object: 10 filas
 INSERT INTO dw_object (dw_object_id, object_name, object_type, grain, description, is_conformed, scd_type, scd_justificacion, row_count, loaded_at) VALUES
-    (1, 'dim_cliente', 'DIMENSION', NULL, 'Dimension de cliente. Conformada entre classicmodels y customerservice, que solapan al 100% por customerNumber. Las banderas presente_en_ventas y presente_en_servicio indican en que fuente aparece cada cliente.', TRUE, 'TIPO_1', 'El origen es un snapshot estatico sin captura de cambios, de modo que no hay versiones que preservar. Con un feed incremental seria la primera candidata a TIPO 2: el limite de credito y la direccion cambian y afectan el analisis historico.', 122, '2026-09-26 04:57:48.922854'),
-    (2, 'dim_empleado', 'DIMENSION', NULL, 'Dimension de empleado. NO conformada: las dos fuentes tienen solape 0% en la llave. Usa llave de negocio compuesta (numero_empleado, sistema_origen) para que ambas poblaciones convivan sin colisionar.', FALSE, 'TIPO_1', 'El origen no registra cambios de cargo ni de oficina, asi que no hay transiciones que versionar.', 53, '2026-09-26 04:57:48.922854'),
-    (3, 'dim_estado_orden', 'DIMENSION', NULL, 'Dimension de estado de la orden. es_efectiva distingue las ventas cerradas de las canceladas, en disputa o en espera.', FALSE, 'TIPO_1', 'Dimension derivada de un dominio cerrado de seis valores; no cambia entre cargas.', 6, '2026-09-26 04:57:48.922854'),
-    (4, 'dim_oficina', 'DIMENSION', NULL, 'Dimension de oficina. Exclusiva de classicmodels: la sede desde la que trabaja el representante de ventas.', FALSE, 'TIPO_1', 'Catalogo de siete sedes, estable y sin historial en el origen.', 7, '2026-09-26 04:57:48.922854'),
-    (5, 'dim_producto', 'DIMENSION', NULL, 'Dimension de producto. Conformada entre las dos fuentes, que solapan al 100% por productCode. Incluye la linea de producto desnormalizada.', TRUE, 'TIPO_1', 'Mismo motivo que dim_cliente. Con datos vivos convendria TIPO 2 para que el margen de una venta antigua use el precio de compra vigente entonces, no el de hoy.', 110, '2026-09-26 04:57:48.922854'),
-    (6, 'dim_tiempo', 'DIMENSION', NULL, 'Dimension de tiempo generada dia a dia entre 2003 y 2005. Conformada: la comparten los dos hechos.', TRUE, 'TIPO_1', 'Dimension generada y deterministica: una fecha nunca cambia de atributos, asi que el concepto de historial no aplica.', 1096, '2026-09-26 04:57:48.922854'),
-    (7, 'fact_llamadas_servicio', 'FACT', 'Una llamada al centro de servicio al cliente.', 'Hecho secundario. Registra cada llamada de customerservice, relacionada con el cliente que llamo, el producto consultado y el agente que atendio.', FALSE, NULL, NULL, 108, '2026-09-26 04:57:48.922854'),
-    (8, 'fact_ventas', 'FACT', 'Una linea de una orden de compra.', 'Hecho principal del almacen. Registra cada linea de detalle de las ordenes de classicmodels, con sus medidas de cantidad, monto, costo y margen.', FALSE, NULL, NULL, 2996, '2026-09-26 04:57:48.922854'),
-    (9, 'vw_interaccion_cliente_producto', 'VIEW', 'Cliente x producto x mes.', 'Data mart (schema dm) que cruza los dos hechos al grano cliente-producto-mes. Agrega y segrega desde el EDW, como la flecha EDW -> DM de la Clase 4-5. Responde que productos generan mas llamadas por unidad vendida, pregunta que ninguna fuente contesta por si sola.', FALSE, NULL, NULL, 3100, '2026-09-26 04:57:48.922854'),
-    (10, 'vw_ventas_mensuales_linea', 'VIEW', 'Mes x linea de producto.', 'Data mart (schema dm) de desempeno comercial: ordenes, unidades, monto y margen por mes y linea de producto, solo ventas efectivas.', FALSE, NULL, NULL, 180, '2026-09-26 04:57:48.922854');
+    (1, 'dim_cliente', 'DIMENSION', NULL, 'Dimension de cliente. Conformada entre classicmodels y customerservice, que solapan al 100% por customerNumber. Las banderas presente_en_ventas y presente_en_servicio indican en que fuente aparece cada cliente.', TRUE, 'TIPO_1', 'El origen es un snapshot estatico sin captura de cambios, de modo que no hay versiones que preservar. Con un feed incremental seria la primera candidata a TIPO 2: el limite de credito y la direccion cambian y afectan el analisis historico.', 122, '2026-09-26 05:38:42.897503'),
+    (2, 'dim_empleado', 'DIMENSION', NULL, 'Dimension de empleado. NO conformada: las dos fuentes tienen solape 0% en la llave. Usa llave de negocio compuesta (numero_empleado, sistema_origen) para que ambas poblaciones convivan sin colisionar.', FALSE, 'TIPO_1', 'El origen no registra cambios de cargo ni de oficina, asi que no hay transiciones que versionar.', 53, '2026-09-26 05:38:42.897503'),
+    (3, 'dim_estado_orden', 'DIMENSION', NULL, 'Dimension de estado de la orden. es_efectiva distingue las ventas cerradas de las canceladas, en disputa o en espera.', FALSE, 'TIPO_1', 'Dimension derivada de un dominio cerrado de seis valores; no cambia entre cargas.', 6, '2026-09-26 05:38:42.897503'),
+    (4, 'dim_oficina', 'DIMENSION', NULL, 'Dimension de oficina. Exclusiva de classicmodels: la sede desde la que trabaja el representante de ventas.', FALSE, 'TIPO_1', 'Catalogo de siete sedes, estable y sin historial en el origen.', 7, '2026-09-26 05:38:42.897503'),
+    (5, 'dim_producto', 'DIMENSION', NULL, 'Dimension de producto. Conformada entre las dos fuentes, que solapan al 100% por productCode. Incluye la linea de producto desnormalizada.', TRUE, 'TIPO_1', 'Mismo motivo que dim_cliente. Con datos vivos convendria TIPO 2 para que el margen de una venta antigua use el precio de compra vigente entonces, no el de hoy.', 110, '2026-09-26 05:38:42.897503'),
+    (6, 'dim_tiempo', 'DIMENSION', NULL, 'Dimension de tiempo generada dia a dia entre 2003 y 2005. Conformada: la comparten los dos hechos.', TRUE, 'TIPO_1', 'Dimension generada y deterministica: una fecha nunca cambia de atributos, asi que el concepto de historial no aplica.', 1096, '2026-09-26 05:38:42.897503'),
+    (7, 'fact_llamadas_servicio', 'FACT', 'Una llamada al centro de servicio al cliente.', 'Hecho secundario. Registra cada llamada de customerservice, relacionada con el cliente que llamo, el producto consultado y el agente que atendio.', FALSE, NULL, NULL, 108, '2026-09-26 05:38:42.897503'),
+    (8, 'fact_ventas', 'FACT', 'Una linea de una orden de compra.', 'Hecho principal del almacen. Registra cada linea de detalle de las ordenes de classicmodels, con sus medidas de cantidad, monto, costo y margen.', FALSE, NULL, NULL, 2996, '2026-09-26 05:38:42.897503'),
+    (9, 'vw_interaccion_cliente_producto', 'VIEW', 'Cliente x producto x mes.', 'Data mart (schema dm) que cruza los dos hechos al grano cliente-producto-mes. Responde que productos generan mas llamadas por unidad vendida, pregunta que ninguna fuente contesta por si sola.', FALSE, NULL, NULL, 3100, '2026-09-26 05:38:42.897503'),
+    (10, 'vw_ventas_mensuales_linea', 'VIEW', 'Mes x linea de producto.', 'Data mart (schema dm) de desempeno comercial: ordenes, unidades, monto y margen por mes y linea de producto, solo ventas efectivas.', FALSE, NULL, NULL, 180, '2026-09-26 05:38:42.897503');
 
 -- dw_measure: 9 filas
 INSERT INTO dw_measure (dw_measure_id, dw_object_id, measure_name, data_type, additivity, formula, description) VALUES
@@ -627,15 +788,15 @@ INSERT INTO dw_lineage (dw_lineage_id, source_column_id, target_measure_id, targ
 
 -- etl_process: 3 filas
 INSERT INTO etl_process (etl_process_id, process_name, tool, source_systems, target_system, description) VALUES
-    (1, 'etl_dw_staging', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'classicmodels (MySQL), customerservice (PostgreSQL)', 'dw (PostgreSQL)', 'Capas 1 a 4 de Giordano: extrae las 13 tablas de las dos fuentes una sola vez, las perfila, evalua calidad tecnica y de negocio, y separa fisicamente limpios de rechazados.'),
-    (2, 'etl_dw_dimensions', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 de Giordano para el modelo de dimensiones: conforma por area tematica desde Clean Staging y carga las seis dimensiones.'),
-    (3, 'etl_dw_facts', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 de Giordano para el modelo de hechos: conforma ventas y servicio desde Clean Staging, resuelve llaves subrogadas y carga los dos hechos.');
+    (1, 'etl_dw_staging', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'classicmodels (MySQL), customerservice (PostgreSQL)', 'dw (PostgreSQL)', 'Capas 1 a 4: extrae las 13 tablas de las dos fuentes una sola vez, las perfila, evalua calidad tecnica y de negocio, y separa fisicamente limpios de rechazados.'),
+    (2, 'etl_dw_dimensions', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de dimensiones: conforma por area tematica desde Clean Staging y carga las seis dimensiones.'),
+    (3, 'etl_dw_facts', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de hechos: conforma ventas y servicio desde Clean Staging, resuelve llaves subrogadas y carga los dos hechos.');
 
 -- etl_execution: 3 filas
 INSERT INTO etl_execution (etl_execution_id, etl_process_id, run_id, started_at, finished_at, status, rows_read, rows_written, rows_rejected, error_message) VALUES
-    (1, 1, 1, '2026-09-26 04:57:36.026804', '2026-09-26 04:57:36.026804', 'OK', 4335, 4335, 0, NULL),
-    (2, 2, 2, '2026-09-26 04:57:40.876704', '2026-09-26 04:57:40.876704', 'OK', 1394, 1394, 0, NULL),
-    (3, 3, 3, '2026-09-26 04:57:48.178022', '2026-09-26 04:57:48.178022', 'OK', 3104, 3104, 0, NULL);
+    (1, 1, 1, '2026-09-26 05:38:38.165881', '2026-09-26 05:38:38.165881', 'OK', 4335, 4335, 0, NULL),
+    (2, 2, 2, '2026-09-26 05:38:39.752957', '2026-09-26 05:38:39.752957', 'OK', 1394, 1394, 0, NULL),
+    (3, 3, 3, '2026-09-26 05:38:42.522520', '2026-09-26 05:38:42.522520', 'OK', 3104, 3104, 0, NULL);
 
 -- dq_rule: 20 filas
 INSERT INTO dq_rule (dq_rule_id, rule_name, rule_type, criterio_dama, clase_dq, capa, source_column_id, expression, severity, resolution) VALUES
@@ -660,30 +821,31 @@ INSERT INTO dq_rule (dq_rule_id, rule_name, rule_type, criterio_dama, clase_dq, 
     (19, 'tipo_de_dato_valido', 'FORMATO', 'EXACTITUD', 'TECNICA', 'DATA_QUALITY', NULL, 'Las columnas de fecha se interpretan como fecha y las numericas como numero', 'BLOQUEANTE', 'El registro va a la pila de rechazados: un valor que no se puede interpretar no se puede transformar.'),
     (20, 'campos_obligatorios', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'DATA_QUALITY', NULL, 'Toda columna con is_nullable = FALSE en db_column tiene valor', 'BLOQUEANTE', 'El registro va a la pila de rechazados. Las columnas obligatorias se leen del repositorio de metadatos, no estan escritas en el ETL.');
 
--- dq_result: 18 filas
+-- dq_result: 19 filas
 INSERT INTO dq_result (dq_result_id, dq_rule_id, etl_execution_id, evaluated_at, rows_evaluated, rows_failed, passed) VALUES
-    (1, 20, 1, '2026-09-26 04:57:36.026804', 4335, 0, TRUE),
-    (2, 19, 1, '2026-09-26 04:57:36.026804', 3935, 0, TRUE),
-    (3, 6, 1, '2026-09-26 04:57:36.026804', 53, 0, TRUE),
-    (4, 18, 1, '2026-09-26 04:57:36.026804', 4059, 0, TRUE),
-    (5, 7, 1, '2026-09-26 04:57:36.026804', 3501, 0, TRUE),
-    (6, 12, 1, '2026-09-26 04:57:36.026804', 326, 0, TRUE),
-    (7, 11, 1, '2026-09-26 04:57:36.026804', 326, 0, TRUE),
-    (8, 16, 1, '2026-09-26 04:57:36.026804', 110, 0, TRUE),
-    (9, 4, 1, '2026-09-26 04:57:36.026804', 122, 22, FALSE),
-    (10, 3, 1, '2026-09-26 04:57:36.026804', 122, 0, TRUE),
-    (11, 15, 1, '2026-09-26 04:57:36.026804', 110, 0, TRUE),
-    (12, 8, 2, '2026-09-26 04:57:40.876704', 6, 3, FALSE),
-    (13, 2, 2, '2026-09-26 04:57:40.876704', 122, 100, FALSE),
-    (14, 1, 2, '2026-09-26 04:57:40.876704', 122, 0, TRUE),
-    (15, 13, 2, '2026-09-26 04:57:40.876704', 2, 2, FALSE),
-    (16, 14, 2, '2026-09-26 04:57:40.876704', 110, 0, TRUE),
-    (17, 5, 2, '2026-09-26 04:57:40.876704', 53, 0, TRUE),
-    (18, 9, 3, '2026-09-26 04:57:48.178022', 2996, 141, FALSE);
+    (1, 20, 1, '2026-09-26 05:38:38.165881', 4335, 0, TRUE),
+    (2, 19, 1, '2026-09-26 05:38:38.165881', 3935, 0, TRUE),
+    (3, 6, 1, '2026-09-26 05:38:38.165881', 53, 0, TRUE),
+    (4, 18, 1, '2026-09-26 05:38:38.165881', 4059, 0, TRUE),
+    (5, 7, 1, '2026-09-26 05:38:38.165881', 3501, 0, TRUE),
+    (6, 12, 1, '2026-09-26 05:38:38.165881', 326, 0, TRUE),
+    (7, 11, 1, '2026-09-26 05:38:38.165881', 326, 0, TRUE),
+    (8, 16, 1, '2026-09-26 05:38:38.165881', 110, 0, TRUE),
+    (9, 4, 1, '2026-09-26 05:38:38.165881', 122, 22, FALSE),
+    (10, 3, 1, '2026-09-26 05:38:38.165881', 122, 0, TRUE),
+    (11, 15, 1, '2026-09-26 05:38:38.165881', 110, 0, TRUE),
+    (12, 8, 2, '2026-09-26 05:38:39.752957', 6, 3, FALSE),
+    (13, 2, 2, '2026-09-26 05:38:39.752957', 122, 100, FALSE),
+    (14, 1, 2, '2026-09-26 05:38:39.752957', 122, 0, TRUE),
+    (15, 13, 2, '2026-09-26 05:38:39.752957', 2, 2, FALSE),
+    (16, 14, 2, '2026-09-26 05:38:39.752957', 110, 0, TRUE),
+    (17, 5, 2, '2026-09-26 05:38:39.752957', 53, 0, TRUE),
+    (18, 10, 3, '2026-09-26 05:38:42.522520', 326, 246, FALSE),
+    (19, 9, 3, '2026-09-26 05:38:42.522520', 2996, 141, FALSE);
 
 -- usage_herramienta: 3 filas
 INSERT INTO usage_herramienta (usage_herramienta_id, nombre, tipo, proposito, acceso) VALUES
-    (1, 'Metabase', 'BI', 'Construye y sirve los seis reportes de la Entrega 2. Es el unico consumidor de cara al usuario final.', 'LECTURA'),
+    (1, 'Metabase', 'BI', 'Construye y sirve los seis reportes del dashboard. Es el unico consumidor de cara al usuario final.', 'LECTURA'),
     (2, 'ETL Python (staging, dimensiones y hechos)', 'ETL', 'Carga el almacen desde las capas de staging. Unico proceso con permiso de escritura sobre las tablas del modelo dimensional.', 'ESCRITURA'),
     (3, 'Scripts de validacion y backup', 'CLIENTE_SQL', 'Comparan totales contra las fuentes y generan los respaldos. Acceso de solo lectura, bajo demanda.', 'LECTURA');
 
@@ -728,30 +890,30 @@ INSERT INTO usage_consulta_objeto (usage_consulta_id, dw_object_id) VALUES
 
 -- usage_acceso_objeto: 8 filas
 INSERT INTO usage_acceso_objeto (usage_acceso_id, dw_object_id, medido_en, lecturas_secuenciales, filas_leidas_secuencial, lecturas_por_indice, filas_insertadas, filas_actualizadas, filas_borradas) VALUES
-    (1, 4, '2026-09-26 04:57:49.912703', 6, 14, 2996, 7, 0, 0),
-    (2, 8, '2026-09-26 04:57:49.912703', 67, 8988, 0, 2996, 0, 0),
-    (3, 2, '2026-09-26 04:57:49.912703', 3111, 46177, 0, 53, 0, 0),
-    (4, 5, '2026-09-26 04:57:49.912703', 9, 550, 3104, 110, 0, 0),
-    (5, 6, '2026-09-26 04:57:49.912703', 8, 4384, 3104, 1096, 0, 0),
-    (6, 7, '2026-09-26 04:57:49.912703', 32, 216, 0, 108, 0, 0),
-    (7, 3, '2026-09-26 04:57:49.912703', 7, 18, 2996, 6, 0, 0),
-    (8, 1, '2026-09-26 04:57:49.912703', 3112, 156536, 0, 122, 0, 0);
+    (1, 4, '2026-09-26 05:38:43.378103', 6, 14, 2996, 7, 0, 0),
+    (2, 8, '2026-09-26 05:38:43.378103', 67, 8988, 0, 2996, 0, 0),
+    (3, 2, '2026-09-26 05:38:43.378103', 7, 159, 3104, 53, 0, 0),
+    (4, 5, '2026-09-26 05:38:43.378103', 9, 550, 3104, 110, 0, 0),
+    (5, 6, '2026-09-26 05:38:43.378103', 8, 4384, 3104, 1096, 0, 0),
+    (6, 7, '2026-09-26 05:38:43.378103', 32, 216, 0, 108, 0, 0),
+    (7, 3, '2026-09-26 05:38:43.378103', 7, 18, 2996, 6, 0, 0),
+    (8, 1, '2026-09-26 05:38:43.378103', 8, 488, 3104, 122, 0, 0);
 
--- Sincronizacion de secuencias SERIAL
-SELECT setval('data_source_source_id_seq', 2, true);
-SELECT setval('db_table_table_id_seq', 13, true);
-SELECT setval('db_column_column_id_seq', 85, true);
-SELECT setval('business_entity_entity_id_seq', 8, true);
-SELECT setval('business_attribute_attribute_id_seq', 47, true);
-SELECT setval('column_business_mapping_mapping_id_seq', 78, true);
-SELECT setval('dw_object_dw_object_id_seq', 10, true);
-SELECT setval('dw_measure_dw_measure_id_seq', 9, true);
-SELECT setval('dw_attribute_dw_attribute_id_seq', 68, true);
-SELECT setval('dw_lineage_dw_lineage_id_seq', 48, true);
-SELECT setval('etl_process_etl_process_id_seq', 3, true);
-SELECT setval('etl_execution_etl_execution_id_seq', 3, true);
-SELECT setval('dq_rule_dq_rule_id_seq', 20, true);
-SELECT setval('dq_result_dq_result_id_seq', 18, true);
-SELECT setval('usage_herramienta_usage_herramienta_id_seq', 3, true);
-SELECT setval('usage_consulta_usage_consulta_id_seq', 8, true);
-SELECT setval('usage_acceso_objeto_usage_acceso_id_seq', 8, true);
+-- Sync SERIAL sequences with the restored data
+SELECT setval(pg_get_serial_sequence('data_source', 'source_id'), 2, true);
+SELECT setval(pg_get_serial_sequence('db_table', 'table_id'), 13, true);
+SELECT setval(pg_get_serial_sequence('db_column', 'column_id'), 85, true);
+SELECT setval(pg_get_serial_sequence('business_entity', 'entity_id'), 8, true);
+SELECT setval(pg_get_serial_sequence('business_attribute', 'attribute_id'), 47, true);
+SELECT setval(pg_get_serial_sequence('column_business_mapping', 'mapping_id'), 78, true);
+SELECT setval(pg_get_serial_sequence('dw_object', 'dw_object_id'), 10, true);
+SELECT setval(pg_get_serial_sequence('dw_measure', 'dw_measure_id'), 9, true);
+SELECT setval(pg_get_serial_sequence('dw_attribute', 'dw_attribute_id'), 68, true);
+SELECT setval(pg_get_serial_sequence('dw_lineage', 'dw_lineage_id'), 48, true);
+SELECT setval(pg_get_serial_sequence('etl_process', 'etl_process_id'), 3, true);
+SELECT setval(pg_get_serial_sequence('etl_execution', 'etl_execution_id'), 3, true);
+SELECT setval(pg_get_serial_sequence('dq_rule', 'dq_rule_id'), 20, true);
+SELECT setval(pg_get_serial_sequence('dq_result', 'dq_result_id'), 19, true);
+SELECT setval(pg_get_serial_sequence('usage_herramienta', 'usage_herramienta_id'), 3, true);
+SELECT setval(pg_get_serial_sequence('usage_consulta', 'usage_consulta_id'), 8, true);
+SELECT setval(pg_get_serial_sequence('usage_acceso_objeto', 'usage_acceso_id'), 8, true);

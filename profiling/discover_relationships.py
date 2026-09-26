@@ -1,30 +1,22 @@
 """
-NIVEL 3 - Profiling relacional (descubrimiento de relaciones no declaradas).
+Discovery of undeclared relationships (inclusion dependencies).
 
-A diferencia de relational_profiling.py (Nivel 2, que solo mide la salud de
-las FK YA declaradas en el esquema), este script NO parte de las llaves
-foraneas conocidas: compara los valores de TODAS las columnas "tipo
-identificador" de las 13 tablas (de las dos bases de datos, cruzando MySQL
-con PostgreSQL) contra cada llave candidata (columna unica de alguna tabla),
-para detectar relaciones de contencion (inclusion dependencies).
+Instead of starting from the declared foreign keys, compares the
+distinct values of every identifier-like column of the 13 source tables
+(across MySQL and PostgreSQL) against every candidate key, and reports
+pairs where at least MIN_CONTAINMENT of the values are contained. This
+rediscovers the declared FKs and finds implicit ones, notably the
+cross-database links that cannot be declared as real FKs.
 
-Esto permite:
-    - Redescubrir automaticamente las FK que ya conociamos (control de
-      calidad del propio algoritmo).
-    - Encontrar relaciones IMPLICITAS que el esquema no declara, en
-      particular las que cruzan de classicmodels a customerservice (que
-      fisicamente no pueden tener una FK real por estar en motores
-      distintos), y cualquier otra columna que "por los datos" resulte
-      ser un candidato a FK que nadie habia marcado como tal.
+Writes:
+    profiling/output/relaciones_inferidas.csv
 
-Uso:
-    python discover_relationships.py
-
-Requiere el mismo .env que relational_profiling.py.
+Usage:
+    python profiling/discover_relationships.py
 """
 import os
-from pathlib import Path
 from itertools import product
+from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -32,35 +24,30 @@ from sqlalchemy import create_engine, inspect
 
 load_dotenv()
 
-MYSQL_URL = os.getenv("URL_MYSQLDATABASE")
-PG_URL = os.getenv("DATABASE_URL")
-
-if not MYSQL_URL:
-    raise ValueError("No se encontro URL_MYSQLDATABASE en el archivo .env")
-if not PG_URL:
-    raise ValueError("No se encontro DATABASE_URL en el archivo .env")
+CLASSICMODELS_URL = os.getenv("CLASSICMODELS_URL")
+CUSTOMERSERVICE_URL = os.getenv("CUSTOMERSERVICE_URL")
+if not CLASSICMODELS_URL or not CUSTOMERSERVICE_URL:
+    raise ValueError("CLASSICMODELS_URL and CUSTOMERSERVICE_URL must be defined in .env")
 
 MYSQL_SCHEMA = "classicmodels"
 PG_SCHEMA = "public"
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = BASE_DIR / "output"
+OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-mysql_engine = create_engine(MYSQL_URL)
-pg_engine = create_engine(PG_URL)
+mysql_engine = create_engine(CLASSICMODELS_URL)
+pg_engine = create_engine(CUSTOMERSERVICE_URL)
 
-# Tipos que se excluyen del analisis: texto libre/binario, sin valor como
-# identificador y demasiado costosos de comparar por contencion.
+# Free text and binary columns are never identifiers.
 EXCLUDED_TYPE_KEYWORDS = ("text", "blob", "mediumtext", "mediumblob")
-MAX_VARCHAR_LEN_AS_ID = 100  # varchar mas largo que esto no se trata como identificador
+MAX_VARCHAR_LEN_AS_ID = 100  # longer varchars are not treated as identifiers
 
-MIN_CONTAINMENT = 0.90       # % minimo de valores de A contenidos en B para reportar
-MIN_KEY_DISTINCT = 5         # una llave candidata con menos valores distintos que esto se ignora (evita falsos positivos con dominios pequenos como 'status')
+MIN_CONTAINMENT = 0.90       # min share of A's values contained in B to report
+MIN_KEY_DISTINCT = 5         # ignore candidate keys with tiny domains (e.g. 'status')
 
 
 # ---------------------------------------------------------------------------
-# 1. Inventario de columnas "tipo identificador" de ambas bases de datos
+# 1. Identifier-like columns of both sources
 # ---------------------------------------------------------------------------
 
 def qualified_table(db_label, schema, table):
@@ -112,30 +99,27 @@ def load_known_fks(engine, schema):
 
 
 # ---------------------------------------------------------------------------
-# 2. Descubrimiento de inclusion dependencies
+# 2. Inclusion-dependency discovery
 # ---------------------------------------------------------------------------
 
 def main():
-    print("Inventariando columnas candidatas...")
+    print("Listing candidate columns...")
     cols_mysql = list_identifier_columns(mysql_engine, MYSQL_SCHEMA, "classicmodels")
     cols_pg = list_identifier_columns(pg_engine, PG_SCHEMA, "customerservice")
     all_cols = cols_mysql + cols_pg
-    print(f"  {len(cols_mysql)} columnas candidatas en classicmodels, "
-          f"{len(cols_pg)} en customerservice")
+    print(f"  {len(cols_mysql)} candidate columns in classicmodels, "
+          f"{len(cols_pg)} in customerservice")
 
     engines = {"classicmodels": mysql_engine, "customerservice": pg_engine}
-    schemas = {"classicmodels": MYSQL_SCHEMA, "customerservice": PG_SCHEMA}
 
-    print("\nCargando valores distintos de cada columna candidata (puede tardar un poco)...")
+    print("\nLoading distinct values of each candidate column...")
     values_cache = {}
     for c in all_cols:
         key = (c["db"], c["table"], c["column"])
         values_cache[key] = load_values(engines[c["db"]], c["db"], c["schema"], c["table"], c["column"])
-        print(f"  {c['db']}.{c['table']}.{c['column']}: {len(values_cache[key])} valores distintos")
+        print(f"  {c['db']}.{c['table']}.{c['column']}: {len(values_cache[key])} distinct values")
 
-    # Llaves candidatas: columnas cuyo conjunto de valores distintos tiene
-    # tamano razonable (heuristica simple de unicidad aproximada: se valida
-    # comparando contra el total de filas no nulas mas abajo via containment).
+    # Candidate keys: columns with a non-trivial number of distinct values.
     candidate_keys = [c for c in all_cols if len(values_cache[(c["db"], c["table"], c["column"])]) >= MIN_KEY_DISTINCT]
 
     known_fks = {
@@ -143,7 +127,7 @@ def main():
         "customerservice": load_known_fks(pg_engine, PG_SCHEMA),
     }
 
-    print("\nBuscando relaciones de contencion (inclusion dependencies)...")
+    print("\nSearching inclusion dependencies...")
     results = []
     for src, dst in product(all_cols, candidate_keys):
         if src["db"] == dst["db"] and src["table"] == dst["table"] and src["column"] == dst["column"]:
@@ -159,10 +143,8 @@ def main():
         if containment < MIN_CONTAINMENT:
             continue
 
-        # Solo tiene sentido como "candidata a FK" si el destino es
-        # razonablemente unico (aprox. llave), es decir domina en tamano
-        # frente al origen o es igual (evita marcar cosas como 'country'
-        # que por casualidad se solapan entre si).
+        # The target must look like a key: at least half as many distinct
+        # values as the source (filters coincidental overlaps like 'country').
         if len(dst_values) < len(src_values) * 0.5:
             continue
 
@@ -178,9 +160,9 @@ def main():
             "cruza_bases_de_datos": is_cross_db,
             "ya_declarada_como_fk": declared,
         })
-        marca = "cross-DB" if is_cross_db else "misma BD"
-        tag = "ya declarada" if declared else "NUEVA/implicita"
-        print(f"  [{marca}] [{tag}] {src['db']}.{src['table']}.{src['column']} -> "
+        scope = "cross-DB" if is_cross_db else "same DB"
+        tag = "declared" if declared else "NEW/implicit"
+        print(f"  [{scope}] [{tag}] {src['db']}.{src['table']}.{src['column']} -> "
               f"{dst['db']}.{dst['table']}.{dst['column']} ({round(100*containment,2)}%)")
 
     df_out = pd.DataFrame(results).sort_values(
@@ -189,7 +171,7 @@ def main():
     )
     out_path = OUTPUT_DIR / "relaciones_inferidas.csv"
     df_out.to_csv(out_path, index=False, encoding="utf-8")
-    print(f"\nEscrito: {out_path} ({len(df_out)} relaciones encontradas)")
+    print(f"\nWritten: {out_path} ({len(df_out)} relationships found)")
 
 
 if __name__ == "__main__":

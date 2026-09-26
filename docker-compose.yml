@@ -1,28 +1,24 @@
 # ============================================================
-# Stack local completo del proyecto - Entregas 1 y 2
-#
-# Levanta las dos fuentes, el repositorio de metadatos, el almacen
-# de datos y la herramienta de reportes, todo en la maquina local.
-# No hace falta ninguna cuenta en la nube.
+# Local stack: the two sources, the metadata repository, the data
+# warehouse and Metabase.
 #
 #   docker compose up -d
 #
-# Las fuentes se restauran solas la primera vez, desde los dumps que
-# estan en sources/. Los scripts de docker-entrypoint-initdb.d solo
-# corren cuando el volumen esta vacio, asi que para empezar de cero:
+# The sources are restored from the dumps in sources/ the first time
+# each volume is created (docker-entrypoint-initdb.d only runs on an
+# empty volume). To start from scratch:
 #
 #   docker compose down -v
 #
-# Puertos elegidos a proposito fuera de los valores por defecto, para
-# no chocar con un MySQL o un PostgreSQL ya instalado en la maquina.
+# Host ports are shifted (3307, 5433, 5434) so they do not clash with
+# a MySQL or PostgreSQL already installed on the machine.
 # ============================================================
 
 services:
 
   # ----------------------------------------------------------
-  # Fuente 1: classicmodels (ventas)
-  # El dump trae su propio CREATE DATABASE y USE, asi que se
-  # restaura solo al arrancar.
+  # Source 1: classicmodels (sales). The dump carries its own
+  # CREATE DATABASE and USE statements.
   # ----------------------------------------------------------
   mysql:
     image: mysql:8.0
@@ -43,9 +39,8 @@ services:
       start_period: 40s
 
   # ----------------------------------------------------------
-  # Fuente 2: customerservice (centro de atencion al cliente)
-  # El dump NO crea la base, solo tablas en el schema public,
-  # por eso se nombra la base con POSTGRES_DB.
+  # Source 2: customerservice (call center). The dump only creates
+  # tables in schema public, so the database is named via POSTGRES_DB.
   # ----------------------------------------------------------
   postgres-cs:
     image: postgres:16-alpine
@@ -66,9 +61,8 @@ services:
       start_period: 15s
 
   # ----------------------------------------------------------
-  # Repositorio de metadatos (base 'metadata') y almacen de datos
-  # (base 'dw'), en la misma instancia pero en bases separadas.
-  # Es la misma topologia que se uso en Railway.
+  # Metadata repository (database 'metadata') and data warehouse
+  # (database 'dw', created by docker/init-dw.sql) share one instance.
   # ----------------------------------------------------------
   postgres-dw:
     image: postgres:16-alpine
@@ -89,8 +83,8 @@ services:
       start_period: 15s
 
   # ----------------------------------------------------------
-  # Metabase: los reportes de la Entrega 2.
-  # Solo se le registra el almacen como origen, nunca las fuentes.
+  # Metabase: reporting tool. reports/build_dashboard.py registers
+  # only the 'dw' database as a data source, never the sources.
   # ----------------------------------------------------------
   metabase:
     image: metabase/metabase:latest
