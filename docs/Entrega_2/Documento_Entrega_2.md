@@ -111,6 +111,8 @@ La solución sigue la **arquitectura de referencia para integración de datos de
 
 El punto que vale la pena subrayar: **cada capa es una tabla física persistida**, no un paso en memoria. Esa es la diferencia entre seguir el patrón y solamente nombrarlo. Se puede consultar el estado exacto del dato en cualquier punto del proceso y comparar corridas entre sí.
 
+> Referencia rápida de la arquitectura por capas, pensada para consulta durante la sustentación: [`CAPAS.md`](CAPAS.md).
+
 | Capa | Tabla física | Diapositiva | Qué ocurre |
 |---|---|---|---|
 | **Extract / Landing** | `staging_dw.stg_extract` | 15, 16 | Copia 1:1 y sin interpretar de las 11 tablas de las dos fuentes |

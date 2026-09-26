@@ -43,7 +43,11 @@ python run_all.py --solo-etl   # no toca Docker, solo recarga los datos
 | **Entrega 1** | Descubrimiento, perfilamiento y repositorio de metadatos sobre las dos fuentes | [`Documento_Entrega_1.md`](docs/Entrega_1/Documento_Entrega_1.md) |
 | **Entrega 2** | Almacén de datos dimensional, ETL, metadatos del almacén y reportes | [`Documento_Entrega_2.md`](docs/Entrega_2/Documento_Entrega_2.md) |
 
-Para la Entrega 2 hay además un [plan de ejecución](docs/Entrega_2/PLAN.md) y una [guía paso a paso](docs/Entrega_2/GUIA_PASO_A_PASO.md) pensada para quien nunca ha construido un almacén de datos.
+Para la Entrega 2 hay además:
+
+- [Las capas de la solución](docs/Entrega_2/CAPAS.md) — referencia rápida de la arquitectura por capas y los principios que la sustentan
+- [Plan de ejecución](docs/Entrega_2/PLAN.md)
+- [Guía paso a paso](docs/Entrega_2/GUIA_PASO_A_PASO.md) — pensada para quien nunca ha construido un almacén de datos
 
 ## 1. Objetivo del proyecto
 
