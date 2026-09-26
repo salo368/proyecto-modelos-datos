@@ -33,9 +33,15 @@ CREATE TABLE IF NOT EXISTS dw_object (
     grain           TEXT,                           -- solo para hechos
     description     TEXT NOT NULL,
     is_conformed    BOOLEAN NOT NULL DEFAULT FALSE, -- solo para dimensiones
+    -- Tipo de dimension lentamente cambiante (Clase 4-5). Registrar el
+    -- tipo es parte del metadato: sin el, quien consulta la dimension no
+    -- sabe si esta viendo el estado actual o una version historica.
+    scd_type        VARCHAR(10),                    -- 'TIPO_1' | 'TIPO_2' | 'TIPO_3' | NULL
+    scd_justificacion TEXT,                         -- por que se eligio ese tipo
     row_count       INTEGER,
     loaded_at       TIMESTAMP NOT NULL DEFAULT now(),
-    CHECK (object_type IN ('FACT', 'DIMENSION', 'VIEW'))
+    CHECK (object_type IN ('FACT', 'DIMENSION', 'VIEW')),
+    CHECK (scd_type IS NULL OR scd_type IN ('TIPO_1', 'TIPO_2', 'TIPO_3'))
 );
 
 -- Las medidas de cada hecho. additivity es el metadato clave para que
@@ -135,12 +141,25 @@ CREATE TABLE IF NOT EXISTS etl_execution (
 CREATE TABLE IF NOT EXISTS dq_rule (
     dq_rule_id       SERIAL PRIMARY KEY,
     rule_name        VARCHAR(120) NOT NULL UNIQUE,
-    rule_type        VARCHAR(40)  NOT NULL,
+    rule_type        VARCHAR(40)  NOT NULL,   -- categoria tecnica de la regla
+    -- Criterio de calidad segun el marco de la Clase 1, tomado de
+    -- The Art of Enterprise Information Architecture. Mantener las dos
+    -- columnas permite que la regla sea operable por el ETL (rule_type)
+    -- y a la vez trazable al marco conceptual del curso (criterio_dama).
+    criterio_dama    VARCHAR(20),
+    -- Clase de calidad segun Giordano (Clase 2, dia. 17): la tecnica la
+    -- detecta la maquina, la de negocio requiere conocer la semantica.
+    clase_dq         VARCHAR(10),
     source_column_id INTEGER REFERENCES db_column(column_id) ON DELETE SET NULL,
     expression       TEXT NOT NULL,
     severity         VARCHAR(20) NOT NULL,
     resolution       TEXT NOT NULL,   -- que hace el ETL cuando la regla falla
-    CHECK (rule_type IN ('COMPLETITUD', 'UNICIDAD', 'INTEGRIDAD', 'RANGO', 'CONFORMIDAD')),
+    CHECK (rule_type IN ('COMPLETITUD', 'UNICIDAD', 'INTEGRIDAD', 'RANGO',
+                         'CONFORMIDAD', 'FRESCURA')),
+    CHECK (criterio_dama IS NULL OR criterio_dama IN
+           ('EXACTITUD', 'EXHAUSTIVIDAD', 'CONSISTENCIA', 'OPORTUNIDAD',
+            'RELEVANCIA', 'CONFIANZA')),
+    CHECK (clase_dq IS NULL OR clase_dq IN ('TECNICA', 'NEGOCIO')),
     CHECK (severity  IN ('BLOQUEANTE', 'ADVERTENCIA', 'INFORMATIVA'))
 );
 

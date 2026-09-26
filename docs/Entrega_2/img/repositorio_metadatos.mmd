@@ -57,6 +57,8 @@ erDiagram
         INTEGER dq_rule_id PK
         VARCHAR rule_name
         VARCHAR rule_type
+        VARCHAR criterio_dama
+        VARCHAR clase_dq
         INTEGER source_column_id
         TEXT expression
         VARCHAR severity
@@ -93,6 +95,8 @@ erDiagram
         TEXT grain
         TEXT description
         BOOLEAN is_conformed
+        VARCHAR scd_type
+        TEXT scd_justificacion
         INTEGER row_count
         TIMESTAMP loaded_at
     }
@@ -116,6 +120,36 @@ erDiagram
         VARCHAR target_system
         TEXT description
     }
+    usage_acceso_objeto {
+        INTEGER usage_acceso_id PK
+        INTEGER dw_object_id
+        TIMESTAMP medido_en
+        BIGINT lecturas_secuenciales
+        BIGINT filas_leidas_secuencial
+        BIGINT lecturas_por_indice
+        BIGINT filas_insertadas
+        BIGINT filas_actualizadas
+        BIGINT filas_borradas
+    }
+    usage_consulta {
+        INTEGER usage_consulta_id PK
+        VARCHAR nombre
+        INTEGER usage_herramienta_id
+        TEXT proposito
+        VARCHAR frecuencia
+        INTEGER nro_joins
+    }
+    usage_consulta_objeto {
+        INTEGER usage_consulta_id PK
+        INTEGER dw_object_id PK
+    }
+    usage_herramienta {
+        INTEGER usage_herramienta_id PK
+        VARCHAR nombre
+        VARCHAR tipo
+        TEXT proposito
+        VARCHAR acceso
+    }
     business_entity ||--o{ business_attribute : "entity_id"
     business_attribute ||--o{ column_business_mapping : "attribute_id"
     db_column ||--o{ column_business_mapping : "column_id"
@@ -131,3 +165,7 @@ erDiagram
     dw_measure ||--o{ dw_lineage : "target_measure_id"
     dw_object ||--o{ dw_measure : "dw_object_id"
     etl_process ||--o{ etl_execution : "etl_process_id"
+    dw_object ||--o{ usage_acceso_objeto : "dw_object_id"
+    usage_herramienta ||--o{ usage_consulta : "usage_herramienta_id"
+    dw_object ||--o{ usage_consulta_objeto : "dw_object_id"
+    usage_consulta ||--o{ usage_consulta_objeto : "usage_consulta_id"

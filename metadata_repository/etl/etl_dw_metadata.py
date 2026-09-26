@@ -31,6 +31,41 @@ META = sa.create_engine(os.getenv("METADATA_REPO_URL"))
 # Descripcion de cada objeto del almacen
 # ============================================================
 
+# Tipo de dimension lentamente cambiante (Clase 4-5) y su justificacion.
+#
+# Todas las dimensiones son TIPO 1 (sobrescritura, sin historial) por una
+# razon concreta del origen: las dos fuentes se restauran desde dumps
+# estaticos, no son feeds incrementales. No existe captura de cambios ni
+# columnas temporales en el origen, asi que no hay historia que preservar:
+# un TIPO 2 generaria versiones vacias.
+#
+# Si las fuentes pasaran a ser feeds vivos, dim_cliente y dim_producto
+# serian las candidatas naturales a TIPO 2, porque el limite de credito y
+# el precio cambian con el tiempo y el analisis historico deberia usar el
+# valor vigente en el momento de cada venta, no el actual.
+SCD = {
+    "dim_tiempo": ("TIPO_1",
+        "Dimension generada y deterministica: una fecha nunca cambia de "
+        "atributos, asi que el concepto de historial no aplica."),
+    "dim_cliente": ("TIPO_1",
+        "El origen es un snapshot estatico sin captura de cambios, de modo "
+        "que no hay versiones que preservar. Con un feed incremental seria "
+        "la primera candidata a TIPO 2: el limite de credito y la direccion "
+        "cambian y afectan el analisis historico."),
+    "dim_producto": ("TIPO_1",
+        "Mismo motivo que dim_cliente. Con datos vivos convendria TIPO 2 "
+        "para que el margen de una venta antigua use el precio de compra "
+        "vigente entonces, no el de hoy."),
+    "dim_empleado": ("TIPO_1",
+        "El origen no registra cambios de cargo ni de oficina, asi que no "
+        "hay transiciones que versionar."),
+    "dim_oficina": ("TIPO_1",
+        "Catalogo de siete sedes, estable y sin historial en el origen."),
+    "dim_estado_orden": ("TIPO_1",
+        "Dimension derivada de un dominio cerrado de seis valores; no "
+        "cambia entre cargas."),
+}
+
 OBJETOS = {
     "fact_ventas": (
         "FACT", "Una linea de una orden de compra.",
@@ -138,6 +173,7 @@ MAPA_LINAJE = {
     ("dim_cliente", "codigo_postal"):      ("customers", "postalCode", "copia directa"),
     ("dim_cliente", "pais"):               ("customers", "country", "copia directa"),
     ("dim_cliente", "limite_credito"):     ("customers", "creditLimit", "copia directa"),
+    ("dim_cliente", "presente_en_ventas"):   ("customers", "customerNumber", "bandera: existe en classicmodels"),
     ("dim_cliente", "presente_en_servicio"): ("cs_customers", "customernumber", "bandera: existe en customerservice"),
 
     # --- dim_producto (conformada) ---
@@ -149,6 +185,7 @@ MAPA_LINAJE = {
     ("dim_producto", "proveedor"):         ("products", "productVendor", "copia directa"),
     ("dim_producto", "precio_compra"):     ("products", "buyPrice", "copia directa"),
     ("dim_producto", "precio_msrp"):       ("products", "MSRP", "copia directa"),
+    ("dim_producto", "presente_en_ventas"):   ("products", "productCode", "bandera: existe en classicmodels"),
     ("dim_producto", "presente_en_servicio"): ("cs_products", "productcode", "bandera: existe en customerservice"),
 
     # --- dim_empleado (no conformada) ---
@@ -221,13 +258,16 @@ def main():
                 with DW.connect() as d:
                     filas = d.execute(sa.text(f"SELECT COUNT(*) FROM {nombre}")).scalar()
 
+            scd_tipo, scd_just = SCD.get(nombre, (None, None))
             obj_id = m.execute(sa.text("""
                 INSERT INTO dw_object (object_name, object_type, grain,
-                                       description, is_conformed, row_count)
-                VALUES (:n, :t, :g, :d, :c, :r)
+                                       description, is_conformed, row_count,
+                                       scd_type, scd_justificacion)
+                VALUES (:n, :t, :g, :d, :c, :r, :st, :sj)
                 RETURNING dw_object_id
             """), {"n": nombre, "t": tipo, "g": grano, "d": descripcion,
-                   "c": conformada, "r": filas}).scalar()
+                   "c": conformada, "r": filas,
+                   "st": scd_tipo, "sj": scd_just}).scalar()
             n_obj += 1
 
             if tipo == "VIEW":

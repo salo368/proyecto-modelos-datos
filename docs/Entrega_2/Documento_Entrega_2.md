@@ -107,25 +107,54 @@ Dimensión degenerada: `texto_llamada`.
 
 ### 2.1 Las capas implementadas
 
-La solución tiene cuatro capas físicas, cada una con una responsabilidad única:
+La solución sigue la **arquitectura de referencia para integración de datos de Anthony Giordano** (*Data Integration Blueprint and Modeling*, 2011, Cap. 2), que es la que se presentó en la Clase 2 del curso.
 
-| Capa | Dónde vive | Qué hace |
+El punto que vale la pena subrayar: **cada capa es una tabla física persistida**, no un paso en memoria. Esa es la diferencia entre seguir el patrón y solamente nombrarlo. Se puede consultar el estado exacto del dato en cualquier punto del proceso y comparar corridas entre sí.
+
+| Capa | Tabla física | Diapositiva | Qué ocurre |
+|---|---|---|---|
+| **Extract / Landing** | `staging_dw.stg_extract` | 15, 16 | Copia 1:1 y sin interpretar de las 11 tablas de las dos fuentes |
+| **Data Quality** | `staging_dw.stg_dq` | 17, 18 | Evaluación de calidad, separada en técnica y de negocio |
+| **Transform** | `staging_dw.stg_transform` | 19 | Joins, lookups de llaves subrogadas y agregaciones |
+| **Load-Ready Publish** | `staging_dw.stg_loadready` | — | Forma definitiva, sin transformaciones pendientes |
+| **Load** | `dim_*`, `fact_*` | — | Escritura al modelo dimensional |
+
+Alrededor de esas capas están los tres entornos físicos:
+
+| Entorno | Dónde vive | Rol |
 |---|---|---|
-| **Fuentes** | MySQL y PostgreSQL en Railway | Sistemas de registro. No se modifican |
-| **Staging** | Schema `staging_dw` dentro de la base `dw` | Zona intermedia auditable del ETL |
-| **Almacén** | Base `dw` en PostgreSQL 18 (Railway) | Modelo dimensional consultable |
-| **Presentación** | Metabase sobre Docker | Reportes; conecta solo al almacén |
+| **Fuentes** | `mpd-mysql` y `mpd-postgres-cs` (Docker) | Sistemas de registro. No se modifican |
+| **Almacén** | Base `dw` en `mpd-postgres-dw` | Staging + modelo dimensional |
+| **Repositorio de metadatos** | Base `metadata`, misma instancia | Cataloga todo lo anterior |
+| **Presentación** | Metabase (`mpd-metabase`) | Reportes; conecta solo al almacén |
 
-En paralelo, el **repositorio de metadatos** (base `railway`, misma instancia) cataloga las tres primeras capas.
+### 2.2 Los dos principios de Giordano y cómo se cumplen
 
-### 2.2 Herramienta y justificación
+La Clase 2 enunció dos principios en las diapositivas 15 y 16. No son recomendaciones estéticas: cambian el diseño del proceso.
+
+**«Read once, write many» (diapositiva 15).** Cada tabla de las fuentes se lee **una sola vez por carga**, hacia la capa Extract. El ETL de hechos —que necesita `orderdetails`, `orders`, `products`, `customers` y `employees`— **no vuelve a consultar MySQL ni PostgreSQL**: lee la copia que dejó el ETL de dimensiones en `staging_dw.stg_extract`. Por eso la extracción trae también tablas que el proceso de dimensiones no usa: las necesita el de hechos, y leerlas dos veces violaría el principio.
+
+Esto es verificable: la salida del ETL de hechos declara de qué `run_id` de landing está leyendo, y las 11 tablas aparecen extraídas exactamente una vez por corrida.
+
+**«Almacenamiento no volátil» (diapositiva 16).** Ninguna tabla de staging se trunca. Cada corrida agrega filas con su `run_id`, y el historial completo queda disponible. La vista `staging_dw.vw_trazabilidad_capas` resume cuántas filas pasó cada capa en cada corrida, **incluidas las corridas que fallaron** — que es precisamente cuando el historial sirve.
+
+### 2.3 Sobre los tres destinos de calidad (diapositiva 18)
+
+La diapositiva 18 plantea separar en tres: **datos limpios, datos por revisar y datos rechazados**. Este proyecto implementa **dos** (`OK` y `RECHAZADO`), y es una decisión deliberada, no una omisión.
+
+El estado «por revisar» presupone un **custodio de datos** (*data steward*) que valide los casos dudosos antes de cada carga. Este almacén se reconstruye de forma automática y desatendida desde dos snapshots estáticos: no hay nadie en el circuito para atender una cola de revisión, y un estado que nadie revisa se convierte en una capa muerta que solo acumula filas.
+
+Los casos que en un escenario con custodio irían a «por revisar» —por ejemplo, un cliente que aparece en una fuente y no en la otra— se resuelven aquí con una regla explícita y quedan trazados en `dq_result`, de modo que la decisión es auditable aunque no haya intervención humana. Si las fuentes pasaran a ser feeds vivos con datos de calidad variable, el tercer estado sí se justificaría.
+
+### 2.4 Herramienta y justificación
 
 | Componente | Herramienta | Por qué |
 |---|---|---|
-| Almacén | PostgreSQL 18 en Railway | Se creó como una **base nueva dentro de la instancia que ya hospedaba el repositorio de metadatos**, lo que evita levantar un cuarto servicio y mantiene el costo en cero |
-| ETL | Python 3.11 + SQLAlchemy 2.1 + pandas 3.0 | Mismo stack de la Entrega 1: coherencia entre entregas y reutilización del patrón por capas |
-| Diagramas | Graphviz en contenedor Docker | Genera el diagrama desde el esquema real, sin instalar Graphviz en las máquinas del equipo |
+| Almacén y repositorio | PostgreSQL 16 en Docker | Dos bases separadas en una misma instancia: separación lógica sin costo de infraestructura adicional |
+| ETL | Python 3.11 + SQLAlchemy 2.1 + pandas 3.0 | Mismo stack de la Entrega 1, lo que permite reutilizar el patrón por capas de Giordano en ambas entregas |
+| Diagramas | Graphviz en contenedor Docker | Genera el diagrama desde el esquema real de la base, no de un dibujo a mano |
 | Reportes | Metabase (open source) sobre Docker | Cero costo, cero instalación, conecta nativo a PostgreSQL |
+| Orquestación | `docker-compose` + `run_all.py` | Todo el proyecto se levanta y se carga con un comando, en cualquier máquina |
 
 Se evaluó y se descartó AWS: ningún punto del enunciado exige nube, Redshift no está habilitado en la cuenta disponible y una instancia RDS habría costado entre 12 y 15 dólares mensuales sin aportar nada a la calificación.
 
@@ -151,26 +180,40 @@ Adicionalmente se verificó que el **backup restaura de verdad**: se creó una b
 
 ## 3. Diseño de metadatos (15 %)
 
-### 3.1 Qué se agregó y por qué
+### 3.1 Las cuatro categorías de metadatos
 
-El repositorio de la Entrega 1 tenía seis tablas que describen las **fuentes**. Para gestionar un almacén hacen falta tres cosas más: saber qué objetos lo componen, de dónde sale cada dato, y qué pasó en cada corrida del ETL. Se agregaron **ocho tablas**, para un total de catorce.
+La Clase 3 define **cuatro** categorías de metadatos, y el repositorio las cubre todas:
 
-| Bloque | Tablas nuevas | Qué resuelve |
+| Categoría (Clase 3) | Qué es | Tablas que la implementan |
 |---|---|---|
-| Estructura del almacén | `dw_object`, `dw_measure`, `dw_attribute` | Cataloga hechos, dimensiones, vistas, medidas y atributos |
-| Linaje | `dw_lineage` | Conecta cada medida o atributo con la columna de origen y la regla de transformación |
-| Operación | `etl_process`, `etl_execution` | Registra qué proceso corrió, cuándo, con qué herramienta y cuántas filas movió |
-| Calidad | `dq_rule`, `dq_result` | Convierte los hallazgos del perfilamiento en reglas evaluables y guarda su resultado por corrida |
+| **Negocio** | Capa semántica: glosario, términos de negocio | `business_entity`, `business_attribute` |
+| **Técnicos** | Catálogos de la base: tablas, columnas, tipos | `data_source`, `db_table`, `db_column`, `dw_object`, `dw_measure`, `dw_attribute` |
+| **Procesos** | Acciones que toman los programas; transformaciones | `etl_process`, `etl_execution`, `dw_lineage` |
+| **Uso** | Patrones y frecuencia de acceso; con qué herramientas; queries vs tablas; joins | `usage_herramienta`, `usage_consulta`, `usage_consulta_objeto`, `usage_acceso_objeto` |
 
-### 3.2 Diagrama físico del repositorio completo
+La Entrega 1 cubrió Negocio y Técnicos. La Entrega 2 agrega Procesos y Uso, más la extensión de Técnicos hacia el almacén. El repositorio pasó de 6 a **18 tablas**.
+
+La categoría de **Uso** tiene una particularidad que vale la pena destacar: a diferencia de las otras tres, el uso no se declara, **se mide**. `usage_acceso_objeto` se puebla leyendo `pg_stat_user_tables` del almacén, que son los contadores que lleva el propio motor de PostgreSQL. No es una estimación ni una lista escrita a mano: es lo que efectivamente ocurrió. Un valor alto de `lecturas_secuenciales` frente a `lecturas_por_indice` es la señal clásica de un índice faltante.
+
+### 3.2 Dimensiones lentamente cambiantes
+
+La Clase 4-5 dedica una diapositiva al tema, así que la decisión quedó registrada como metadato en `dw_object.scd_type` y `dw_object.scd_justificacion`, no solo narrada aquí.
+
+**Las seis dimensiones son Tipo 1** (sobrescritura, sin historial). La razón está en el origen: las dos fuentes se restauran desde dumps estáticos, no son feeds incrementales. No hay captura de cambios ni columnas temporales en el origen, de modo que no existe historia que preservar — un Tipo 2 generaría versiones vacías.
+
+Si las fuentes pasaran a ser feeds vivos, `dim_cliente` y `dim_producto` serían las candidatas naturales a Tipo 2: el límite de crédito, la dirección y el precio de compra cambian con el tiempo, y un análisis histórico correcto debería usar el valor vigente en el momento de cada venta, no el actual.
+
+### 3.3 Diagrama físico del repositorio completo
 
 ![Repositorio de metadatos con las catorce tablas](img/repositorio_metadatos.png)
 
 Lo importante del diagrama está en el centro: **`db_column`**, la tabla de la Entrega 1 que cataloga las 85 columnas de las fuentes, se conecta a `dw_lineage` y a `dq_rule`. Gracias a eso el linaje ya no se corta en la frontera de las fuentes, sino que llega hasta el almacén.
 
-### 3.3 El linaje de punta a punta
+### 3.4 Linaje de punta a punta: las dos direcciones
 
-Encadenando `column_business_mapping` (Entrega 1) con `dw_lineage` (Entrega 2), una sola consulta responde de dónde viene cada dato y qué significa en el negocio:
+La Clase 3 distingue **dos recorridos sobre el mismo grafo**, y son preguntas de negocio distintas hechas por personas distintas. Ambas están implementadas en `metadata_repository/queries/linaje_e_impacto.sql`.
+
+**Linaje de Datos** (destino → orígenes) responde *«¿de dónde viene este dato que me muestra un reporte?»*. Lo usa quien duda de una cifra. Encadenando `column_business_mapping` de la Entrega 1 con `dw_lineage` de la Entrega 2:
 
 | Fuente | Columna de origen | Objeto del almacén | Destino | Entidad de negocio | Regla |
 |---|---|---|---|---|---|
@@ -180,20 +223,44 @@ Encadenando `column_business_mapping` (Entrega 1) con `dw_lineage` (Entrega 2), 
 | classicmodels | `orderdetails.quantityOrdered` | `fact_ventas` | `cantidad_ordenada` | Orden de Compra | Copia directa |
 | classicmodels | `products.buyPrice` | `fact_ventas` | `costo_linea` | Producto | Cálculo |
 
-### 3.4 Contenido actual del catálogo
+**Análisis de Impacto** (origen → destino) responde *«si modifico esta tabla, ¿qué procesos se afectan?»*. Lo usa quien va a cambiar una fuente, antes de tocarla. La consulta cruza el linaje con los metadatos de uso, de modo que el resultado no se queda en «afecta a `dim_cliente`» sino que llega hasta «y por lo tanto rompe estos tres reportes que corren a diario».
 
-| Tabla | Filas | Contenido |
+Esa segunda dirección solo es posible porque existe la categoría de metadatos de Uso: sin `usage_consulta_objeto`, el análisis de impacto se detendría en la frontera del almacén y no podría decir qué reportes se caen.
+
+### 3.5 Contenido actual del catálogo
+
+| Categoría | Tabla | Filas | Contenido |
+|---|---|---|---|
+| Negocio | `business_entity` | 8 | Entidades con dominio y descripción |
+| Negocio | `business_attribute` | 47 | Atributos de negocio |
+| Negocio | `column_business_mapping` | 78 | Linaje semántico de la Entrega 1 |
+| Técnico | `data_source` | 2 | Las dos fuentes |
+| Técnico | `db_table` / `db_column` | 13 / 85 | Catálogo de las fuentes |
+| Técnico | `dw_object` | 9 | 2 hechos, 6 dimensiones, 1 vista, con su tipo de SCD |
+| Técnico | `dw_measure` | 9 | Medidas con aditividad y fórmula |
+| Técnico | `dw_attribute` | 68 | Atributos con su rol |
+| Proceso | `dw_lineage` | 48 | Vínculos fuente → almacén |
+| Proceso | `etl_process` / `etl_execution` | 2 / 2 | Procesos y bitácora de corridas |
+| Proceso | `dq_rule` / `dq_result` | 9 / 7 | Reglas de calidad y su evaluación |
+| **Uso** | `usage_herramienta` | 3 | Metabase, ETL, scripts de validación |
+| **Uso** | `usage_consulta` | 8 | Consultas con frecuencia y número de joins |
+| **Uso** | `usage_consulta_objeto` | 25 | Qué consulta toca qué objeto |
+| **Uso** | `usage_acceso_objeto` | 8 | Acceso real medido por el motor |
+
+El catálogo se puebla automáticamente: `etl_dw_metadata.py` introspecciona el esquema real del almacén y `etl_uso_metadata.py` mide el acceso. Solo el linaje y el glosario de negocio se declaran a mano, porque son conocimiento que no se puede deducir de un esquema.
+
+### 3.6 Un hallazgo de los metadatos de uso
+
+La primera medición ya arrojó algo accionable, que es el objetivo de esta categoría:
+
+| Objeto | Lecturas secuenciales | Lecturas por índice |
 |---|---|---|
-| `dw_object` | 9 | 2 hechos, 6 dimensiones, 1 vista |
-| `dw_measure` | 9 | Medidas con su aditividad y fórmula |
-| `dw_attribute` | 68 | Atributos con su rol |
-| `dw_lineage` | 46 | Vínculos fuente → almacén |
-| `etl_process` | 2 | Los dos procesos ETL, con herramienta declarada |
-| `etl_execution` | 2 | Bitácora de corridas |
-| `dq_rule` | 8 | Los hallazgos de la Entrega 1, formalizados |
-| `dq_result` | 7 | Su evaluación en la última corrida |
+| `dim_cliente` | 3.113 | 0 |
+| `dim_empleado` | 3.111 | 0 |
+| `dim_producto` | 9 | 3.104 |
+| `dim_tiempo` | 9 | 3.104 |
 
-El catálogo se puebla automáticamente con `metadata_repository/etl/etl_dw_metadata.py`, que introspecciona el esquema real del almacén. Solo el linaje se declara a mano, porque es conocimiento de negocio que no se puede deducir del esquema.
+`dim_cliente` y `dim_empleado` se recorren completas miles de veces sin usar índice, mientras que `dim_producto` y `dim_tiempo`, con carga comparable, sí lo usan. Es la señal que la Clase 3 describe como propósito del monitoreo de uso. La causa probable está en cómo el planificador resuelve la validación de llaves foráneas y los *lookups* de estas dos dimensiones en particular; queda como línea de optimización documentada, respaldada por una medición y no por una intuición.
 
 ---
 
@@ -201,27 +268,55 @@ El catálogo se puebla automáticamente con `metadata_repository/etl/etl_dw_meta
 
 ### 4.1 Arquitectura del proceso
 
-Se construyeron dos procesos, que siguen el patrón por capas de Anthony Giordano (*Data Integration Blueprint and Modeling*) ya usado en la Entrega 1:
+Se construyeron dos procesos que implementan la arquitectura de Giordano con **tablas físicas persistidas**, no con pasos en memoria:
 
 | Proceso | Archivo | Qué carga |
 |---|---|---|
-| `etl_dw_dimensions` | `datawarehouse/etl/etl_dw_dimensions.py` | Las seis dimensiones |
-| `etl_dw_facts` | `datawarehouse/etl/etl_dw_facts.py` | Los dos hechos y la vista integrada |
+| `etl_dw_dimensions` | `datawarehouse/etl/etl_dw_dimensions.py` | Extrae las 11 tablas fuente y carga las seis dimensiones |
+| `etl_dw_facts` | `datawarehouse/etl/etl_dw_facts.py` | Carga los dos hechos y la vista integrada, leyendo del landing |
 
-**El orden no es negociable:** los hechos apuntan a las dimensiones por llave foránea, así que las dimensiones tienen que existir antes. Si se invierte, la base rechaza las filas.
+**El orden no es negociable** por dos razones distintas. La primera es de integridad: los hechos apuntan a las dimensiones por llave foránea, así que las dimensiones tienen que existir antes. La segunda es arquitectónica: el ETL de hechos **no lee las fuentes**, lee el landing que dejó el de dimensiones, cumpliendo el «read once, write many».
 
-La técnica específica del ETL dimensional es la **búsqueda de llaves subrogadas**: el hecho no guarda `customerNumber = 103`, guarda `cliente_key = 7`, que es la fila que le tocó a ese cliente en `dim_cliente`. El proceso construye un diccionario de traducción por dimensión y lo aplica antes de escribir. Si alguna llave obligatoria queda sin resolver, el proceso **falla en vez de cargar datos huérfanos**.
+### 4.2 Recorrido de una fila por las capas
 
-### 4.2 Registro en el repositorio de metadatos
+La tabla siguiente es la salida real de `staging_dw.vw_trazabilidad_capas` tras una carga limpia:
 
-Cada corrida abre una fila en `etl_execution` con estado `EN_CURSO`, y la cierra con `OK` o `ERROR` más los conteos de filas leídas y escritas. La última corrida registró:
+| Corrida | Proceso | Estado | Extract | Data Quality | Transform | Load-Ready |
+|---|---|---|---|---|---|---|
+| 1 | dimensiones | OK | 3.961 | 3.961 | 1.394 | 1.394 |
+| 2 | hechos | OK | 0 | 0 | 3.104 | 3.104 |
 
-| Proceso | Corrida | Estado | Filas leídas | Filas escritas | Duración |
-|---|---|---|---|---|---|
-| `etl_dw_dimensions` | 1 | OK | 530 | 1.394 | 20,1 s |
-| `etl_dw_facts` | 1 | OK | 3.104 | 3.104 | 18,6 s |
+Los números cuentan la historia del diseño:
 
-### 4.3 Los problemas de calidad de la Entrega 1, resueltos
+- **3.961 filas en Extract** son las 11 tablas de las dos fuentes, leídas una sola vez.
+- **1.394 en Transform** para dimensiones: menos que la entrada, porque de las 11 tablas extraídas solo 6 alimentan dimensiones y varias se consolidan (`products` con `productlines`, `employees` con `cs_employees`).
+- **0 en Extract para hechos**: la evidencia directa de que ese proceso no volvió a tocar las fuentes.
+- **3.104 en Transform para hechos**: 2.996 líneas de orden más 108 llamadas.
+
+### 4.3 La capa Transform: joins, lookups y agregaciones
+
+La diapositiva 19 de la Clase 2 nombra las tres operaciones de esta capa, y las tres ocurren aquí:
+
+**Joins.** `fact_ventas` cruza cinco tablas del landing (`orderdetails`, `orders`, `products`, `customers`, `employees`) para reunir las medidas y las llaves de negocio en una sola fila.
+
+**Lookups.** Es la operación característica de un ETL dimensional: el hecho no guarda `customerNumber = 103`, guarda `cliente_key = 7`, que es la fila que le tocó a ese cliente en `dim_cliente`. En esta implementación el lookup deja rastro: el resultado queda en `stg_transform` con la anotación de qué operaciones se aplicaron, en vez de vivir y desaparecer en un diccionario de Python.
+
+El caso de `dim_empleado` muestra por qué el lookup importa: su llave es compuesta `(numero_empleado, sistema_origen)`, de modo que el número 26 de `classicmodels` y el 26 de `customerservice` resuelven a llaves subrogadas distintas, que es lo correcto porque son dos personas diferentes.
+
+**Agregaciones.** Las medidas calculadas (`monto_linea`, `costo_linea`, `margen_linea`, `dias_hasta_envio`) y la derivación de `dim_estado_orden` a partir de los valores distintos de `orders.status`.
+
+Si alguna llave obligatoria queda sin resolver, el proceso **falla en vez de cargar datos huérfanos**. Es una decisión deliberada: un hecho que apunta a una dimensión inexistente corrompe todos los reportes que lo agreguen.
+
+### 4.4 Registro en el repositorio de metadatos
+
+Cada corrida se registra en dos lugares complementarios:
+
+- `staging_dw.etl_run` — control interno del proceso, con el detalle por capa.
+- `etl_execution` en el repositorio de metadatos — la vista de gobierno, con proceso, herramienta, filas leídas, escritas y rechazadas.
+
+Además, cada regla de calidad evaluada deja su resultado en `dq_result`, ligado a la ejecución concreta que la evaluó.
+
+### 4.5 Los problemas de calidad de la Entrega 1, resueltos
 
 El enunciado pide explícitamente resolverlos. Cada uno se trató en la capa Transform y quedó registrado como regla evaluada:
 
@@ -236,6 +331,34 @@ El enunciado pide explícitamente resolverlos. Cada uno se trató en la capa Tra
 | Órdenes canceladas mezcladas con despachadas | 6 | 3 | Se cargan todas; `es_efectiva` permite excluirlas del reporte |
 
 La columna «afectadas» sale de `dq_result`, no de una estimación: es lo que midió el ETL al correr.
+
+### 4.6 Clasificación de las reglas según los dos marcos del curso
+
+Cada regla se clasifica en dos ejes distintos, porque responden preguntas distintas y ambos se enseñaron:
+
+**Criterios de calidad de la Clase 1** (*The Art of Enterprise Information Architecture*):
+
+| Criterio | Reglas | Cuáles |
+|---|---|---|
+| Exhaustividad | 3 | Columnas vacías, `addressLine2`, `shippedDate` |
+| Consistencia | 3 | Las tres reglas de conformidad entre fuentes |
+| Exactitud | 1 | Estados de orden que no cuentan como venta cerrada |
+| Relevancia | 1 | `orders.comments`: presente pero sin valor analítico |
+| Oportunidad | 1 | Frescura de la última carga exitosa |
+| Confianza | — | No se mide directamente |
+
+**Confianza** no tiene regla propia a propósito. La Clase 1 la define como la *combinación* de los otros cinco criterios más metadatos y gobierno, no como algo medible por separado: es el resultado agregado de que las demás pasen.
+
+**Oportunidad** sí se cerró con una regla nueva (`almacen_frescura_de_carga`), que compara el momento actual contra la última carga exitosa registrada en `etl_execution`. Si superan las 24 horas, los reportes están mostrando datos vencidos.
+
+**Clases de calidad según Giordano** (Clase 2, diapositiva 17):
+
+| Clase | Reglas | Naturaleza |
+|---|---|---|
+| Técnica | 4 | Datos faltantes o inválidos; los detecta la máquina sin conocer el negocio |
+| Negocio | 5 | Definiciones inconsistentes o datos inexactos; exigen conocer la semántica |
+
+La distinción es operativa, no decorativa: las reglas técnicas se evalúan fila por fila en la capa de Data Quality y pueden rechazar registros; las de negocio se evalúan sobre el conjunto y su resultado alimenta decisiones de modelado, como la llave compuesta de `dim_empleado`.
 
 ---
 
@@ -279,10 +402,15 @@ El **reporte 6 sirve de verificación del modelo**: muestra únicamente los 30 a
 | **Backup del repositorio de metadatos** | `metadata_repository/backup/metadata_repo_backup.sql` | Script propio en Python con SQLAlchemy |
 | **Archivos ETL** | `datawarehouse/etl/etl_dw_dimensions.py`, `etl_dw_facts.py`, `metadata_repository/etl/etl_dw_metadata.py` | Python 3.11 + SQLAlchemy 2.1 + pandas 3.0 |
 | **Reporte** | `reports/construir_dashboard.py` + capturas en `docs/Entrega_2/img/` | Metabase sobre Docker |
-| DDL del almacén | `datawarehouse/ddl/01_dw_schema.sql` | PostgreSQL 18 |
-| DDL de la extensión de metadatos | `metadata_repository/ddl/metadata_dw_extension.sql` | PostgreSQL 18 |
+| DDL del almacén | `datawarehouse/ddl/01_dw_schema.sql` | PostgreSQL 16 |
+| DDL de las capas de Giordano | `datawarehouse/ddl/02_staging_dw.sql` | PostgreSQL 16 |
+| DDL de la extensión de metadatos | `metadata_repository/ddl/metadata_dw_extension.sql` | PostgreSQL 16 |
+| DDL de metadatos de uso | `metadata_repository/ddl/metadata_uso_extension.sql` | PostgreSQL 16 |
+| Medición de uso del almacén | `metadata_repository/etl/etl_uso_metadata.py` | Python + `pg_stat_user_tables` |
+| Linaje de datos y análisis de impacto | `metadata_repository/queries/linaje_e_impacto.sql` | SQL |
 | Consultas de negocio | `datawarehouse/queries/pregunta_negocio.sql` | SQL |
 | Validación contra fuentes | `datawarehouse/queries/validacion.py` | Python |
+| Verificación del backup | `datawarehouse/backup/probar_restauracion.py` | Python |
 | Diagramas físicos | `docs/Entrega_2/img/*.png` | Graphviz en Docker |
 
 > **Nota sobre los backups.** No se usó `pg_dump` porque el binario disponible en las máquinas del equipo es de PostgreSQL 15 y el servidor de Railway corre PostgreSQL 18, combinación que `pg_dump` rechaza por incompatibilidad de versión. En su lugar se escribió un generador propio que produce un archivo SQL equivalente y portable. Su funcionamiento se verificó restaurando el backup sobre una base desechable y comparando conteos y totales.

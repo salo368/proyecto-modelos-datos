@@ -57,8 +57,15 @@ PIPELINE = [
      [PY, "datawarehouse/ddl/run_sql.py",
       "metadata_repository/etl/dq_rules_seed.sql", "METADATA_REPO_URL"]),
 
+    ("Entrega 2 - Metadatos de uso (cuarta categoria, Clase 3)",
+     [PY, "datawarehouse/ddl/run_sql.py",
+      "metadata_repository/ddl/metadata_uso_extension.sql", "METADATA_REPO_URL"]),
+
     ("Entrega 2 - Esquema del almacen dimensional",
      [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/01_dw_schema.sql"]),
+
+    ("Entrega 2 - Capas de staging del ETL (Giordano, Clase 2)",
+     [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/02_staging_dw.sql"]),
 
     ("Entrega 2 - ETL de dimensiones",
      [PY, "datawarehouse/etl/etl_dw_dimensions.py"]),
@@ -68,6 +75,9 @@ PIPELINE = [
 
     ("Entrega 2 - Catalogo del almacen en el repositorio",
      [PY, "metadata_repository/etl/etl_dw_metadata.py"]),
+
+    ("Entrega 2 - Medicion de uso del almacen",
+     [PY, "metadata_repository/etl/etl_uso_metadata.py"]),
 
     ("Validacion contra las fuentes",
      [PY, "datawarehouse/queries/validacion.py"]),

@@ -37,11 +37,16 @@ DESTINOS = {
         "salida":  "metadata_repository/backup/metadata_repo_backup.sql",
         "titulo":  "Repositorio de Metadatos (Entregas 1 y 2)",
         "ddl":     None,   # se reconstruye por introspeccion
+        # Orden de carga: respeta las llaves foraneas. Las cuatro
+        # categorias de metadatos de la Clase 3 en secuencia:
+        # tecnicos -> negocio -> almacen -> procesos -> calidad -> uso.
         "orden": [
             "data_source", "db_table", "db_column",
             "business_entity", "business_attribute", "column_business_mapping",
             "dw_object", "dw_measure", "dw_attribute", "dw_lineage",
             "etl_process", "etl_execution", "dq_rule", "dq_result",
+            "usage_herramienta", "usage_consulta", "usage_consulta_objeto",
+            "usage_acceso_objeto",
         ],
     },
 }

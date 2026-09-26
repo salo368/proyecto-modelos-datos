@@ -210,7 +210,8 @@ CREATE INDEX idx_fl_producto ON fact_llamadas_servicio(producto_key);
 CREATE INDEX idx_fl_empleado ON fact_llamadas_servicio(empleado_key);
 
 -- ------------------------------------------------------------
--- Schema de staging para las capas intermedias del ETL,
--- siguiendo el mismo patron de la Entrega 1.
+-- Las capas intermedias del ETL (Extract, Data Quality, Transform,
+-- Load-Ready) viven en el schema staging_dw y se definen aparte, en
+-- datawarehouse/ddl/02_staging_dw.sql, donde cada tabla esta mapeada
+-- a la diapositiva de la Clase 2 que la sustenta.
 -- ------------------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS staging_dw;
