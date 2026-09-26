@@ -305,7 +305,8 @@ def build():
          ["6 · Load-Ready Publish", n(sum(c for _, c in tr_d + tr_h)),
           n(sum(c for _, c in lr_d + lr_h)), "forma definitiva, sin transformaciones pendientes"],
          ["7 · Load", n(sum(c for _, c in lr_d + lr_h)), n(sum(loaded.values())),
-          "tablas del modelo reemplazadas en una sola transacción"]],
+          "dimensiones por llave de negocio y hechos reemplazados, "
+          "cada rama en una sola transacción"]],
         ["l", "r", "r", "l"]))
     w("")
     w("Entre las capas 4 y 5 el número de filas cambia porque la transformación "

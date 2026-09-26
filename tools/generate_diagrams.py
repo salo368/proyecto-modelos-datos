@@ -101,10 +101,14 @@ def pipeline_dot():
     """Pipeline layers and warehouse, with the counts of the last successful load.
 
     The layer counts come from the staging database; what was loaded
-    comes from the warehouse.
+    comes from the warehouse; the rule count, from the metadata repository.
     """
     staging = sa.create_engine(os.getenv("STAGING_URL"))
     dw = sa.create_engine(os.getenv("DW_URL"))
+    meta = sa.create_engine(os.getenv("METADATA_URL"))
+    with meta.connect() as m:
+        rules = m.execute(sa.text(
+            "SELECT COUNT(*) FROM dq_rule WHERE capa = 'DATA_QUALITY'")).scalar()
     with staging.connect() as c, dw.connect() as w:
         def n(sql):
             return c.execute(sa.text(sql)).scalar() or 0
@@ -164,7 +168,7 @@ def pipeline_dot():
                node("ini_cs", "stg_initial_customerservice", f"{tab_cs} tablas, {ini_cs} filas", GREEN),
                node("profile", "stg_perfil", f"{profiled} columnas perfiladas", GREY, "note")),
         *layer(3, "3  Data Quality",
-               node("dq", "Reglas tecnicas y de negocio", "11 reglas por registro", AMBER, "box"),
+               node("dq", "Reglas tecnicas y de negocio", f"{rules} reglas por registro", AMBER, "box"),
                node("errlog", "stg_error_log", f"{errors} entradas ({warnings} advertencias)", AMBER, "note")),
         *layer(4, "4  Clean Staging",
                node("clean", "stg_clean", f"{clean} filas limpias", GREY),
@@ -194,8 +198,8 @@ def pipeline_dot():
         '  dq -> clean; dq -> rej [color="#c0392b"];',
         "  clean -> tr_d; clean -> tr_f;",
         "  tr_d -> lr_d; tr_f -> lr_f;",
-        '  lr_d -> dims [penwidth=2, label="7 Load", fontsize=10];',
-        '  lr_f -> facts [penwidth=2, label="7 Load", fontsize=10];',
+        '  lr_d -> dims [penwidth=2, label="7 Load (upsert)", fontsize=10];',
+        '  lr_f -> facts [penwidth=2, label="7 Load (reemplazo)", fontsize=10];',
         '  dims -> tr_f [style=dashed, label="lookup", fontsize=9];',
         "  facts -> dm1; dims -> dm1; facts -> dm2; dims -> dm2;",
         "}",

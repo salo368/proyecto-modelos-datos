@@ -77,6 +77,14 @@ FROM (VALUES
      'BLOQUEANTE',
      'El registro va a la pila de rechazados.'),
 
+    ('fecha_no_futura',
+     'RANGO', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 'orders', 'orderDate',
+     'orderDate, paymentDate y la fecha de la llamada <= fecha de la carga',
+     'BLOQUEANTE',
+     'El registro va a la pila de rechazados: un evento no puede ocurrir '
+     'despues de la carga. dim_tiempo se genera sobre el periodo que cubren '
+     'las ventas y las llamadas, asi que una fecha errada lo extenderia.'),
+
     ('precio_sugerido_coherente',
      'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 'products', 'MSRP',
      'MSRP >= buyPrice',
@@ -107,6 +115,15 @@ FROM (VALUES
      'ADVERTENCIA',
      'Si difieren, classicmodels es la fuente autoritativa de dim_producto; '
      'la diferencia queda trazada.'),
+
+    ('padre_rechazado',
+     'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, NULL,
+     'Toda referencia apunta a un registro que no fue rechazado '
+     '(se evalua despues de las demas reglas)',
+     'BLOQUEANTE',
+     'El registro sigue a su padre a la pila de rechazados, en cascada '
+     '(cliente -> ordenes -> lineas): si pasara, apuntaria a un miembro '
+     'que no llega al almacen y detendria la carga de hechos.'),
 
     -- ==========================================================
     -- TRANSFORMATION: findings from source profiling

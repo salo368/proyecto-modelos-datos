@@ -68,8 +68,9 @@ OBJECTS = {
         "agente que atendio.", False),
     "dim_tiempo": (
         "DIMENSION", None,
-        "Dimension de tiempo generada dia a dia entre 2003 y 2005. Conformada: "
-        "la comparten los dos hechos.", True),
+        "Dimension de tiempo generada dia a dia, por anios completos, sobre el "
+        "periodo que cubren las ventas y las llamadas (2003 a 2005 con los "
+        "datos actuales). Conformada: la comparten los dos hechos.", True),
     "dim_cliente": (
         "DIMENSION", None,
         "Dimension de cliente. Conformada entre classicmodels y customerservice, "

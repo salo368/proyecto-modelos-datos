@@ -33,12 +33,15 @@ RULES = {
     "valores_positivos":      ("NEGOCIO", "DATO_INEXACTO",    "RECHAZADO"),
     "secuencia_de_fechas":    ("NEGOCIO", "DATO_INEXACTO",    "RECHAZADO"),
     "envio_consistente_con_estado": ("NEGOCIO", "DATO_INEXACTO", "RECHAZADO"),
+    "fecha_no_futura":        ("NEGOCIO", "DATO_INEXACTO",    "RECHAZADO"),
     "precio_sugerido_coherente":    ("NEGOCIO", "DATO_INEXACTO", "ADVERTENCIA"),
     "cliente_con_vendedor":   ("NEGOCIO", "CAMPO_FALTANTE",   "ADVERTENCIA"),
     "consistencia_entre_fuentes_cliente":
                               ("NEGOCIO", "DEFINICION_INCONSISTENTE", "ADVERTENCIA"),
     "consistencia_entre_fuentes_producto":
                               ("NEGOCIO", "DEFINICION_INCONSISTENTE", "ADVERTENCIA"),
+    # --- propagation: evaluated last, over the rejections of every rule above ---
+    "padre_rechazado":        ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "RECHAZADO"),
 }
 
 # Columns that identify a record in the error log. cs_customer_calls
@@ -67,6 +70,40 @@ NUMERIC_COLUMNS = {
     "customers": ["creditLimit"],
     "payments": ["amount"],
 }
+# Dates of events that already happened: they cannot be later than the
+# load. orders.orderDate and cs_customer_calls.date also become the
+# tiempo_key of the facts, and dim_tiempo is generated from them.
+EVENT_DATES = {
+    "orders": ["orderDate"],
+    "payments": ["paymentDate"],
+    "cs_customer_calls": ["date"],
+}
+
+# (child table, column, parent table, parent column, description).
+# integridad_referencial checks them against everything that landed;
+# padre_rechazado, against the parents that were not rejected.
+REFERENCES = [
+    ("orderdetails", "orderNumber", "orders", "orderNumber", "orden inexistente"),
+    ("orderdetails", "productCode", "products", "productCode", "producto inexistente"),
+    ("orders", "customerNumber", "customers", "customerNumber", "cliente inexistente"),
+    ("payments", "customerNumber", "customers", "customerNumber", "cliente inexistente"),
+    ("customers", "salesRepEmployeeNumber", "employees", "employeeNumber", "vendedor inexistente"),
+    ("employees", "officeCode", "offices", "officeCode", "oficina inexistente"),
+    ("employees", "reportsTo", "employees", "employeeNumber", "jefe inexistente"),
+    ("products", "productLine", "productlines", "productLine", "linea inexistente"),
+    ("cs_customer_calls", "customernumber", "cs_customers", "customernumber", "cliente inexistente en customerservice"),
+    ("cs_customer_calls", "productcode", "cs_products", "productcode", "producto inexistente en customerservice"),
+    ("cs_customer_calls", "employeenumber", "cs_employees", "employeenumber", "agente inexistente"),
+    ("cs_customer_products", "customernumber", "cs_customers", "customernumber", "cliente inexistente"),
+    ("cs_customer_products", "productcode", "cs_products", "productcode", "producto inexistente"),
+    # Cross-source: the conformed dimensions are built from
+    # classicmodels, so a call whose customer or product is missing
+    # there would become an orphan in fact_llamadas_servicio.
+    ("cs_customer_calls", "customernumber", "customers", "customerNumber",
+     "cliente sin equivalente en classicmodels (dimension conformada)"),
+    ("cs_customer_calls", "productcode", "products", "productCode",
+     "producto sin equivalente en classicmodels (dimension conformada)"),
+]
 
 
 def required_columns():
@@ -164,31 +201,8 @@ def business_checks(data, log):
         return set(data[table][1][col].dropna()) if table in data else set()
 
     # --- Referential integrity, within each source and across sources ---
-    # (child table, column, parent table, parent column, description)
-    references = [
-        ("orderdetails", "orderNumber", "orders", "orderNumber", "orden inexistente"),
-        ("orderdetails", "productCode", "products", "productCode", "producto inexistente"),
-        ("orders", "customerNumber", "customers", "customerNumber", "cliente inexistente"),
-        ("payments", "customerNumber", "customers", "customerNumber", "cliente inexistente"),
-        ("customers", "salesRepEmployeeNumber", "employees", "employeeNumber", "vendedor inexistente"),
-        ("employees", "officeCode", "offices", "officeCode", "oficina inexistente"),
-        ("employees", "reportsTo", "employees", "employeeNumber", "jefe inexistente"),
-        ("products", "productLine", "productlines", "productLine", "linea inexistente"),
-        ("cs_customer_calls", "customernumber", "cs_customers", "customernumber", "cliente inexistente en customerservice"),
-        ("cs_customer_calls", "productcode", "cs_products", "productcode", "producto inexistente en customerservice"),
-        ("cs_customer_calls", "employeenumber", "cs_employees", "employeenumber", "agente inexistente"),
-        ("cs_customer_products", "customernumber", "cs_customers", "customernumber", "cliente inexistente"),
-        ("cs_customer_products", "productcode", "cs_products", "productcode", "producto inexistente"),
-        # Cross-source: the conformed dimensions are built from
-        # classicmodels, so a call whose customer or product is missing
-        # there would become an orphan in fact_llamadas_servicio.
-        ("cs_customer_calls", "customernumber", "customers", "customerNumber",
-         "cliente sin equivalente en classicmodels (dimension conformada)"),
-        ("cs_customer_calls", "productcode", "products", "productCode",
-         "producto sin equivalente en classicmodels (dimension conformada)"),
-    ]
     counted = set()
-    for child, col, parent, parent_col, desc in references:
+    for child, col, parent, parent_col, desc in REFERENCES:
         if child not in data or parent not in data:
             continue
         source, df = data[child]
@@ -237,6 +251,21 @@ def business_checks(data, log):
             if df.at[i, "status"] == "Shipped" and pd.isna(shipped[i]):
                 log.fail("envio_consistente_con_estado", source, "orders", df.loc[i],
                          "Orden marcada Shipped sin fecha de envio")
+
+    # --- Events dated after the load ---
+    today = pd.Timestamp.today().normalize()
+    for table, cols in EVENT_DATES.items():
+        if table not in data:
+            continue
+        source, df = data[table]
+        cols = [c for c in cols if c in df.columns]
+        log.check("fecha_no_futura", len(df))
+        for i in df.index:
+            late = [c for c in cols
+                    if pd.to_datetime(df.at[i, c], errors="coerce") > today]
+            if late:
+                log.fail("fecha_no_futura", source, table, df.loc[i],
+                         f"Fecha posterior a la carga: {', '.join(late)}")
 
     # --- Suggested price below cost ---
     if "products" in data:
@@ -287,12 +316,54 @@ def business_checks(data, log):
             "consistencia_entre_fuentes_producto")
 
 
+def cascade_rejections(data, log):
+    """Reject the records whose parent was rejected, down every level.
+
+    integridad_referencial compares each reference with everything that
+    landed in Initial Staging, so the children of a rejected record pass
+    it: the orders of a rejected customer and the lines of those orders.
+    Left in Clean Staging, they would point to a dimension member that
+    never reaches the warehouse and the fact load would stop. The
+    rejection is propagated along REFERENCES until no new record falls.
+    """
+    rejected = defaultdict(set)                   # table -> rejected row numbers
+    for f in log.failures:
+        if f["accion"] == "RECHAZADO":
+            rejected[f["tabla_origen"]].add(f["nro_fila"])
+    for child in {c for c, *_ in REFERENCES if c in data}:
+        log.check("padre_rechazado", len(data[child][1]))
+
+    changed = True
+    while changed:
+        changed = False
+        for child, col, parent, parent_col, _ in REFERENCES:
+            if child not in data or not rejected[parent]:
+                continue
+            parents = data[parent][1]
+            dropped = parents["_nro_fila"].isin(rejected[parent])
+            # A key survives if any record that carries it was kept.
+            gone = (set(parents.loc[dropped, parent_col].dropna())
+                    - set(parents.loc[~dropped, parent_col].dropna()))
+            if not gone:
+                continue
+            source, df = data[child]
+            for _, row in df.iterrows():
+                v = row.get(col)
+                if int(row["_nro_fila"]) in rejected[child] or pd.isna(v) or v not in gone:
+                    continue
+                log.fail("padre_rechazado", source, child, row,
+                         f"{col}={v}: el registro de {parent} fue rechazado")
+                rejected[child].add(int(row["_nro_fila"]))
+                changed = True
+
+
 def run(run_id):
     print("\n[Layer 3] Data Quality")
     data = read_initial(run_id)
     log = QualityLog()
     technical_checks(data, log)
     business_checks(data, log)
+    cascade_rejections(data, log)
 
     insert("stg_error_log", [{"run_id": run_id, **f} for f in log.failures])
 

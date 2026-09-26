@@ -35,14 +35,14 @@ Dimensión degenerada: `texto_llamada`.
 
 | Dimensión | Filas | Conformada | Origen |
 |---|---|---|---|
-| `dim_tiempo` | 1.096 | Sí | Generada: un día entre 2003-01-01 y 2005-12-31; llave `AAAAMMDD` |
+| `dim_tiempo` | 1.096 | Sí | Generada: todos los días de los años que cubren las ventas y las llamadas (hoy, 2003-01-01 a 2005-12-31); llave `AAAAMMDD` |
 | `dim_cliente` | 122 | Sí | `customers`; `cs_customers` aporta la bandera `presente_en_servicio`. `direccion_completa` une `addressLine1` y `addressLine2` |
 | `dim_producto` | 110 | Sí | `products` con `productlines` desnormalizada; `cs_products` aporta `presente_en_servicio` |
 | `dim_empleado` | 53 | No | Unión de `employees` (23 vendedores) y `cs_employees` (30 agentes) con llave de negocio compuesta `(numero_empleado, sistema_origen)` |
 | `dim_oficina` | 7 | No | `offices` |
 | `dim_estado_orden` | 6 | No | Valores distintos de `orders.status`; `es_efectiva` es falso para Cancelled, Disputed y On Hold |
 
-Cada dimensión tiene llave subrogada (`*_key`) y llave de negocio. Todas son de tipo 1: se recargan completas en cada corrida porque las fuentes son snapshots sin historial.
+Cada dimensión tiene llave subrogada (`*_key`) y llave de negocio. Todas son de tipo 1, porque las fuentes son snapshots sin historial: cada carga inserta los miembros nuevos y sobrescribe los atributos de los existentes por llave de negocio, sin cambiar su llave subrogada. Así, recargar las dimensiones no invalida los hechos ya cargados.
 
 ## Archivos
 

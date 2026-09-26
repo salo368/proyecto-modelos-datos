@@ -7,7 +7,8 @@ Process 'hechos': layers 5 to 7 for the two facts.
 
 Reads the same Clean Staging run as the dimension process and resolves
 surrogate keys against the dimensions already loaded, so it must run
-after run_dimensions.py.
+after run_dimensions.py. It refuses to start if the loaded dimensions
+came from another staging run.
 
 Usage:
     python pipeline/run_facts.py
@@ -15,7 +16,8 @@ Usage:
 import layer5_transform_facts as transform
 import layer6_load_ready
 import layer7_load
-from common import close_run, last_successful_staging_run, log_execution, open_run
+from common import (check_dimensions_loaded_from, close_run,
+                    last_successful_staging_run, log_execution, open_run)
 
 PROCESS = "etl_dw_facts"        # name in the metadata repository
 TARGET = "dw (PostgreSQL)"
@@ -23,6 +25,7 @@ TARGET = "dw (PostgreSQL)"
 
 if __name__ == "__main__":
     staging_run = last_successful_staging_run()
+    check_dimensions_loaded_from(staging_run)
     run_id = open_run("hechos", source_run=staging_run)
     print(f"Integration, facts (layers 5-7) - run_id={run_id}, "
           f"reading Clean Staging of run {staging_run}")

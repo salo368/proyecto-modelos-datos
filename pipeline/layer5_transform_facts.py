@@ -41,13 +41,27 @@ def surrogate_key_map(table, business_key, surrogate_key, extra=None):
     return dict(zip(df[business_key], df[surrogate_key]))
 
 
+def time_keys(dates):
+    """tiempo_key (YYYYMMDD) of each date, NA when dim_tiempo lacks it.
+
+    The key is computed rather than looked up, so without this check a
+    date outside the calendar would only surface as a foreign-key error
+    inside Load.
+    """
+    loaded = set(pd.read_sql("SELECT tiempo_key FROM dim_tiempo", DW)["tiempo_key"])
+    keys = pd.to_datetime(dates, errors="coerce").dt.strftime("%Y%m%d").astype("Int64")
+    return keys.where(keys.isin(loaded))
+
+
 def check_keys(df, required, target):
     """Stop the load instead of writing a fact with an unresolved key."""
     orphans = int(df[required].isna().any(axis=1).sum())
     if orphans:
+        per_key = df[required].isna().sum()
+        detail = ", ".join(f"{c}: {int(n)}" for c, n in per_key.items() if n)
         raise RuntimeError(
-            f"{orphans} rows of {target} could not resolve a required key. "
-            f"Check that the dimensions are complete.")
+            f"{orphans} rows of {target} could not resolve a required key "
+            f"({detail}). Check that the dimensions are complete.")
 
 
 def publish_transform(run_id, area, target, df, operations):
@@ -107,7 +121,7 @@ def area_sales(run_id, staging_run):
     employee_keys = surrogate_key_map("dim_empleado", "numero_empleado", "empleado_key",
                                       extra="sistema_origen")
 
-    df["tiempo_key"] = ordered.dt.strftime("%Y%m%d").astype("Int64")
+    df["tiempo_key"] = time_keys(df["orderDate"])
     df["cliente_key"] = df["customerNumber"].map(customer_keys)
     df["producto_key"] = df["productCode"].map(product_keys)
     df["oficina_key"] = df["officeCode"].map(office_keys)
@@ -147,7 +161,7 @@ def area_service(run_id, staging_run):
     employee_keys = surrogate_key_map("dim_empleado", "numero_empleado", "empleado_key",
                                       extra="sistema_origen")
 
-    df["tiempo_key"] = pd.to_datetime(df["date"]).dt.strftime("%Y%m%d").astype("Int64")
+    df["tiempo_key"] = time_keys(df["date"])
     df["cliente_key"] = df["customernumber"].map(customer_keys)
     df["producto_key"] = df["productcode"].map(product_keys)
     # Agents always come from customerservice, never from the sales reps.
