@@ -30,7 +30,7 @@ Solo hace falta **Docker** y **Python 3.9 o superior**.
 python run_all.py
 ```
 
-El script levanta el stack de [`docker-compose.yml`](docker-compose.yml), restaura las dos fuentes desde `sources/`, crea `.env` a partir de [`.env.example`](.env.example), instala las dependencias de [`requirements.txt`](requirements.txt) y ejecuta los 30 pasos del pipeline. La primera vez tarda algunos minutos mientras descarga las imágenes de Docker.
+El script levanta el stack de [`docker-compose.yml`](docker-compose.yml), restaura las dos fuentes desde `sources/`, crea `.env` a partir de [`.env.example`](.env.example), instala las dependencias de [`requirements.txt`](requirements.txt) y ejecuta los 31 pasos del pipeline. La primera vez tarda algunos minutos mientras descarga las imágenes de Docker.
 
 | Opción | Qué hace |
 |---|---|
@@ -61,14 +61,14 @@ El almacén, el staging del pipeline y el repositorio de metadatos son tres base
 |---|---|---|
 | 1–4 | Perfilamiento de las fuentes | Metadatos técnicos y perfil por columna desde los dumps, reporte de columnas y llaves, integridad referencial y correspondencia entre fuentes, descubrimiento de relaciones no declaradas |
 | 5–11 | Repositorio de metadatos | Esquema base y de staging, ETL de metadatos técnicos, glosario de negocio y linaje semántico, extensión del almacén, reglas de calidad, extensión de uso |
-| 12–13 | Almacén de datos | Tablas del EDW y vistas de los data marts en la base `dw` |
-| 14–18 | Pipeline | Base `staging` y sus tablas; procesos de staging (capas 1–4), dimensiones y hechos (capas 5–7) |
-| 19–20 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
-| 21–24 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad (incluido el rechazo en cascada), Load todo-o-nada ante una falla forzada y retoma de una carga sin dañar el almacén |
-| 25 | Reportes | Dashboard de Metabase |
-| 26–28 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
-| 29 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
-| 30 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
+| 12–14 | Almacén de datos | Tablas del EDW, sus miembros especiales (Desconocido, Sin asignar) y vistas de los data marts en la base `dw` |
+| 15–19 | Pipeline | Base `staging` y sus tablas; procesos de staging (capas 1–4), dimensiones y hechos (capas 5–7) |
+| 20–21 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
+| 22–25 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad (incluido el rechazo en cascada), Load todo-o-nada ante una falla forzada y retoma de una carga sin dañar el almacén |
+| 26 | Reportes | Dashboard de Metabase |
+| 27–29 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
+| 30 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
+| 31 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
 
 Antes de sacar conclusiones de los dashboards, lea el [reporte de calidad por etapa](docs/data_quality_report.md): dice qué parte de los datos es verificable y qué decisiones recortan la base de cada análisis.
 

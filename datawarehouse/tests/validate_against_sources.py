@@ -24,6 +24,10 @@ def scalar(engine, sql):
     return pd.read_sql(sql, engine).iloc[0, 0]
 
 
+# Special members (negative keys, datawarehouse/edw/special_members.sql)
+# do not come from the sources, so they are left out of the counts.
+
+
 CHECKS = [
     ("Total sales amount",
      scalar(CLASSICMODELS, "SELECT ROUND(SUM(quantityOrdered*priceEach),2) FROM orderdetails"),
@@ -55,12 +59,12 @@ CHECKS = [
 
     ("Offices",
      scalar(CLASSICMODELS, "SELECT COUNT(*) FROM offices"),
-     scalar(DW, "SELECT COUNT(*) FROM dim_oficina")),
+     scalar(DW, "SELECT COUNT(*) FROM dim_oficina WHERE oficina_key > 0")),
 
     ("Employees (both sources)",
      scalar(CLASSICMODELS, "SELECT COUNT(*) FROM employees")
      + scalar(CUSTOMERSERVICE, "SELECT COUNT(*) FROM cs_employees"),
-     scalar(DW, "SELECT COUNT(*) FROM dim_empleado")),
+     scalar(DW, "SELECT COUNT(*) FROM dim_empleado WHERE empleado_key > 0")),
 ]
 
 print(f"{'Check':<28}{'Source':>18}{'Warehouse':>18}   Status")

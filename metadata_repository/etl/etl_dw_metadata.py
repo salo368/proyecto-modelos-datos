@@ -84,11 +84,13 @@ OBJECTS = {
         "DIMENSION", None,
         "Dimension de empleado. NO conformada: las dos fuentes tienen solape 0% "
         "en la llave. Usa llave de negocio compuesta (numero_empleado, "
-        "sistema_origen) para que ambas poblaciones convivan sin colisionar.", False),
+        "sistema_origen) para que ambas poblaciones convivan sin colisionar. "
+        "Tiene dos miembros especiales: -1 Desconocido y -2 Sin asignar.", False),
     "dim_oficina": (
         "DIMENSION", None,
         "Dimension de oficina. Exclusiva de classicmodels: la sede desde la que "
-        "trabaja el representante de ventas.", False),
+        "trabaja el representante de ventas. Tiene dos miembros especiales: "
+        "-1 Desconocida y -2 Sin asignar.", False),
     "dim_estado_orden": (
         "DIMENSION", None,
         "Dimension de estado de la orden. es_efectiva distingue las ventas "
@@ -173,10 +175,12 @@ EXTRA_LINEAGE = {
         ("orderdetails", "productCode", "lookup: productCode -> producto_key")],
     ("fact_ventas", "empleado_key"): [
         ("customers", "salesRepEmployeeNumber",
-         "lookup del vendedor del cliente; NULL si el cliente no tiene vendedor")],
+         "lookup del vendedor del cliente; -2 Sin asignar si no tiene vendedor, "
+         "-1 Desconocido si su vendedor no llego al almacen")],
     ("fact_ventas", "oficina_key"): [
         ("employees", "officeCode",
-         "lookup de la oficina del vendedor; NULL si el cliente no tiene vendedor")],
+         "lookup de la oficina del vendedor; -2 Sin asignar si el cliente no "
+         "tiene vendedor, -1 Desconocido si el vendedor no llego al almacen")],
     ("fact_ventas", "estado_key"): [
         ("orders", "status", "lookup: status -> estado_key")],
     ("fact_llamadas_servicio", "tiempo_key"): [

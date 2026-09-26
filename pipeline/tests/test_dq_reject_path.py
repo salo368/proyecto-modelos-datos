@@ -11,7 +11,11 @@ per rule type and checks that:
   4. the children of a rejected record are rejected too, down every
      level (customer -> order -> order line), so nothing that reaches
      Clean Staging points to a record that did not;
-  5. no healthy record is flagged.
+  5. an optional reference (a customer's sales rep, an employee's boss)
+     to a missing or rejected record only warns: the record and its
+     children go on, and the sales point to the special member
+     'Desconocido';
+  6. no healthy record is flagged.
 
 It calls the same functions as the ETL on in-memory data and writes
 nothing; it only reads the NOT NULL columns from the metadata repository.
@@ -57,6 +61,17 @@ DATA = {
          "contactFirstName": "B", "phone": "3", "addressLine1": "x", "city": "c",
          "country": "p", "postalCode": "3", "salesRepEmployeeNumber": 10,
          "creditLimit": 100.0},
+        # referencia_opcional_no_resuelta (warning): its sales rep #12 was
+        # rejected, which does not drag the customer along
+        {"customerNumber": 4, "customerName": "Vendedor rechazado", "contactLastName": "A",
+         "contactFirstName": "B", "phone": "4", "addressLine1": "x", "city": "c",
+         "country": "p", "postalCode": "4", "salesRepEmployeeNumber": 12,
+         "creditLimit": 100.0},
+        # referencia_opcional_no_resuelta (warning): its sales rep does not exist
+        {"customerNumber": 5, "customerName": "Vendedor inexistente", "contactLastName": "A",
+         "contactFirstName": "B", "phone": "5", "addressLine1": "x", "city": "c",
+         "country": "p", "postalCode": "5", "salesRepEmployeeNumber": 999,
+         "creditLimit": 100.0},
     ]),
     "employees": batch("classicmodels", [
         {"employeeNumber": 10, "lastName": "V", "firstName": "W", "extension": "x1",
@@ -64,6 +79,12 @@ DATA = {
         # formato_email (warning)
         {"employeeNumber": 11, "lastName": "V", "firstName": "W", "extension": "x2",
          "email": "sin-arroba", "officeCode": "1", "reportsTo": None, "jobTitle": "Sales"},
+        # campos_obligatorios (reject): lastName is NOT NULL
+        {"employeeNumber": 12, "lastName": None, "firstName": "W", "extension": "x3",
+         "email": "r@empresa.com", "officeCode": "1", "reportsTo": None, "jobTitle": "Sales"},
+        # referencia_opcional_no_resuelta (warning): its boss #12 was rejected
+        {"employeeNumber": 13, "lastName": "V", "firstName": "W", "extension": "x4",
+         "email": "s@empresa.com", "officeCode": "1", "reportsTo": 12, "jobTitle": "Sales"},
     ]),
     "offices": batch("classicmodels", [
         {"officeCode": "1", "city": "c", "phone": "1", "addressLine1": "x",
@@ -98,6 +119,9 @@ DATA = {
         {"orderNumber": 105, "orderDate": FUTURE.isoformat(),
          "requiredDate": (FUTURE + timedelta(days=10)).isoformat(),
          "shippedDate": None, "status": "In Process", "customerNumber": 1},
+        # healthy: its customer #4 lost its sales rep, but was not rejected
+        {"orderNumber": 106, "orderDate": "2004-01-10", "requiredDate": "2004-01-20",
+         "shippedDate": None, "status": "In Process", "customerNumber": 4},
     ]),
     "orderdetails": batch("classicmodels", [
         {"orderNumber": 100, "productCode": "P1", "quantityOrdered": 2,
@@ -145,7 +169,11 @@ DATA = {
 EXPECTED = {
     ("customers", 2):         ("cliente_con_vendedor", False),
     ("customers", 3):         ("campos_obligatorios", True),
+    ("customers", 4):         ("referencia_opcional_no_resuelta", False),
+    ("customers", 5):         ("referencia_opcional_no_resuelta", False),
     ("employees", 2):         ("formato_email", False),
+    ("employees", 3):         ("campos_obligatorios", True),
+    ("employees", 4):         ("referencia_opcional_no_resuelta", False),
     ("products", 2):          ("precio_sugerido_coherente", False),
     ("orders", 2):            ("secuencia_de_fechas", True),
     ("orders", 3):            ("envio_consistente_con_estado", True),

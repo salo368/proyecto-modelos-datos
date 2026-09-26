@@ -53,7 +53,7 @@ FROM (VALUES
     -- ==========================================================
     ('integridad_referencial',
      'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, NULL,
-     'Toda referencia apunta a un registro existente, dentro de cada fuente '
+     'Toda referencia obligatoria apunta a un registro existente, dentro de cada fuente '
      'y entre fuentes (llamadas contra el maestro de clientes y productos de classicmodels)',
      'BLOQUEANTE',
      'El registro va a la pila de rechazados: cargarlo produciria un hecho '
@@ -97,8 +97,8 @@ FROM (VALUES
      'salesRepEmployeeNumber no nulo',
      'ADVERTENCIA',
      'La fuente admite el nulo (tecnicamente valido), pero el negocio espera '
-     'que todo cliente tenga vendedor. El registro pasa y sus ventas quedan '
-     'con empleado_key y oficina_key nulos.'),
+     'que todo cliente tenga vendedor. El registro pasa y sus ventas apuntan '
+     'al miembro especial -2 Sin asignar de dim_empleado y dim_oficina.'),
 
     ('consistencia_entre_fuentes_cliente',
      'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY',
@@ -116,9 +116,19 @@ FROM (VALUES
      'Si difieren, classicmodels es la fuente autoritativa de dim_producto; '
      'la diferencia queda trazada.'),
 
+    ('referencia_opcional_no_resuelta',
+     'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY',
+     'customers', 'salesRepEmployeeNumber',
+     'Las referencias opcionales (vendedor del cliente, jefe del empleado) '
+     'apuntan a un registro existente y no rechazado',
+     'ADVERTENCIA',
+     'El registro pasa: el rechazo no se propaga por una referencia opcional. '
+     'Sus ventas apuntan al miembro especial -1 Desconocido de dim_empleado '
+     'y dim_oficina; reportsTo no se modela.'),
+
     ('padre_rechazado',
      'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, NULL,
-     'Toda referencia apunta a un registro que no fue rechazado '
+     'Toda referencia obligatoria apunta a un registro que no fue rechazado '
      '(se evalua despues de las demas reglas)',
      'BLOQUEANTE',
      'El registro sigue a su padre a la pila de rechazados, en cascada '
@@ -178,6 +188,15 @@ FROM (VALUES
      'INFORMATIVA',
      'Las dos poblaciones no se solapan: dim_empleado usa llave de negocio '
      'compuesta (numero_empleado, sistema_origen) en vez de fusionarlas.'),
+
+    ('venta_vendedor_no_resuelto',
+     'COMPLETITUD', 'EXHAUSTIVIDAD', 'NEGOCIO', 'TRANSFORMATION',
+     'customers', 'salesRepEmployeeNumber',
+     'Toda linea de venta resuelve el vendedor y la oficina del cliente',
+     'INFORMATIVA',
+     'La linea no queda con llave nula: apunta al miembro especial -2 Sin '
+     'asignar si el cliente no tiene vendedor, o -1 Desconocido si su '
+     'vendedor no llego al almacen.'),
 
     ('estado_orden_no_efectivo',
      'INTEGRIDAD', 'EXACTITUD', 'NEGOCIO', 'TRANSFORMATION',

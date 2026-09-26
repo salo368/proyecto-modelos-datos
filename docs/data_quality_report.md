@@ -27,7 +27,7 @@ Qué le pasó a los datos en cada capa de la última carga completa: cuántos re
 | 4 · Clean Staging | 4.335 | 4.335 | 4.335 limpios, 0 rechazados |
 | 5 · Transformation | 4.335 | 4.498 | 6 dimensiones y 2 hechos conformados |
 | 6 · Load-Ready Publish | 4.498 | 4.498 | forma definitiva, sin transformaciones pendientes |
-| 7 · Load | 4.498 | 4.498 | dimensiones por llave de negocio y hechos reemplazados, cada rama en una sola transacción |
+| 7 · Load | 4.498 | 4.498 | dimensiones por llave de negocio y hechos reemplazados, cada rama en una sola transacción. Aparte, el almacén tiene 4 miembros especiales (Desconocido y Sin asignar) |
 
 Entre las capas 4 y 5 el número de filas cambia porque la transformación cambia el grano: varias tablas fuente se consolidan en una dimensión, `dim_tiempo` se genera sin fuente y las tablas no usadas por el modelo no continúan.
 
@@ -60,10 +60,11 @@ Entre las capas 4 y 5 el número de filas cambia porque la transformación cambi
 | `consistencia_entre_fuentes_cliente` | Negocio | Advierte | 122 | 0 | 0,0 % |
 | `consistencia_entre_fuentes_producto` | Negocio | Advierte | 110 | 0 | 0,0 % |
 | `precio_sugerido_coherente` | Negocio | Advierte | 110 | 0 | 0,0 % |
+| `referencia_opcional_no_resuelta` | Negocio | Advierte | 145 | 0 | 0,0 % |
 | `envio_consistente_con_estado` | Negocio | Rechaza | 326 | 0 | 0,0 % |
 | `fecha_no_futura` | Negocio | Rechaza | 707 | 0 | 0,0 % |
-| `integridad_referencial` | Negocio | Rechaza | 4.059 | 0 | 0,0 % |
-| `padre_rechazado` | Negocio | Rechaza | 4.059 | 0 | 0,0 % |
+| `integridad_referencial` | Negocio | Rechaza | 3.937 | 0 | 0,0 % |
+| `padre_rechazado` | Negocio | Rechaza | 3.937 | 0 | 0,0 % |
 | `secuencia_de_fechas` | Negocio | Rechaza | 326 | 0 | 0,0 % |
 | `valores_positivos` | Negocio | Rechaza | 3.501 | 0 | 0,0 % |
 
@@ -96,7 +97,7 @@ Para cada columna fuente con nulos, qué pasó con ellos. Las cifras del destino
 |---|---:|---:|---:|---:|
 | Órdenes no efectivas (canceladas, en disputa o en espera) | 137 | 4,6 % | 469.588,57 | 4,9 % |
 | Órdenes aún no despachadas (sin días hasta el envío) | 141 | 4,7 % | 475.294,17 | 4,9 % |
-| Ventas sin vendedor ni oficina asignados | 0 | 0,0 % | 0,00 | 0,0 % |
+| Ventas sin vendedor resuelto («Sin asignar» o «Desconocido») | 0 | 0,0 % | 0,00 | 0,0 % |
 
 Las situaciones se solapan y no deben sumarse: 100 de las líneas no despachadas pertenecen también a órdenes no efectivas (una orden cancelada tampoco sale de la bodega).
 

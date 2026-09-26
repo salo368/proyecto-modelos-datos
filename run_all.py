@@ -64,6 +64,8 @@ PIPELINE = [
     # --- Data warehouse (EDW and data marts), database dw ---
     ("Data warehouse: EDW star schema",
      [PY, RUN_SQL, "datawarehouse/edw/star_schema.sql"]),
+    ("Data warehouse: special members (Desconocido, Sin asignar)",
+     [PY, RUN_SQL, "datawarehouse/edw/special_members.sql"]),
     ("Data warehouse: data marts",
      [PY, RUN_SQL, "datawarehouse/data_marts/data_marts.sql"]),
 

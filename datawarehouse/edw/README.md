@@ -38,17 +38,31 @@ Dimensión degenerada: `texto_llamada`.
 | `dim_tiempo` | 1.096 | Sí | Generada: todos los días de los años que cubren las ventas y las llamadas (hoy, 2003-01-01 a 2005-12-31); llave `AAAAMMDD` |
 | `dim_cliente` | 122 | Sí | `customers`; `cs_customers` aporta la bandera `presente_en_servicio`. `direccion_completa` une `addressLine1` y `addressLine2` |
 | `dim_producto` | 110 | Sí | `products` con `productlines` desnormalizada; `cs_products` aporta `presente_en_servicio` |
-| `dim_empleado` | 53 | No | Unión de `employees` (23 vendedores) y `cs_employees` (30 agentes) con llave de negocio compuesta `(numero_empleado, sistema_origen)` |
-| `dim_oficina` | 7 | No | `offices` |
+| `dim_empleado` | 53 + 2 | No | Unión de `employees` (23 vendedores) y `cs_employees` (30 agentes) con llave de negocio compuesta `(numero_empleado, sistema_origen)`, más los dos miembros especiales |
+| `dim_oficina` | 7 + 2 | No | `offices`, más los dos miembros especiales |
 | `dim_estado_orden` | 6 | No | Valores distintos de `orders.status`; `es_efectiva` es falso para Cancelled, Disputed y On Hold |
 
 Cada dimensión tiene llave subrogada (`*_key`) y llave de negocio. Todas son de tipo 1, porque las fuentes son snapshots sin historial: cada carga inserta los miembros nuevos y sobrescribe los atributos de los existentes por llave de negocio, sin cambiar su llave subrogada. Así, recargar las dimensiones no invalida los hechos ya cargados.
+
+### Miembros especiales
+
+Ningún hecho tiene llaves foráneas nulas. Donde una venta no puede resolver su vendedor, apunta a una fila especial de `dim_empleado` y `dim_oficina`, creada por [`special_members.sql`](special_members.sql):
+
+| Llave | Nombre | Cuándo se usa |
+|---|---|---|
+| `-1` | Desconocido (Desconocida en `dim_oficina`) | El cliente tiene vendedor en la fuente, pero ese vendedor no llegó al almacén: no existe o la capa de calidad lo rechazó |
+| `-2` | Sin asignar | El cliente no tiene vendedor en la fuente |
+
+Así, un `JOIN` con estas dimensiones no pierde ventas, los reportes muestran el motivo en vez de un hueco y el monto total del almacén sigue cuadrando con la fuente. Las llaves negativas no chocan con las generadas por `SERIAL`, y la carga por llave de negocio nunca las toca. Las pruebas que comparan conteos con las fuentes las excluyen (`*_key > 0`).
+
+Solo estas dos dimensiones los tienen, porque el vendedor es la única referencia opcional que llega a un hecho. Las demás son obligatorias: si el cliente, el producto o la orden de una venta no llega al almacén, el pipeline rechaza la venta (regla `padre_rechazado`).
 
 ## Archivos
 
 | Archivo | Contenido |
 |---|---|
 | [`star_schema.sql`](star_schema.sql) | Dimensiones, hechos e índices sobre las llaves foráneas |
+| [`special_members.sql`](special_members.sql) | Miembros especiales `-1` Desconocido y `-2` Sin asignar de `dim_empleado` y `dim_oficina` |
 | [`business_questions.sql`](business_questions.sql) | Consultas de negocio sobre el EDW, equivalentes a las del dashboard |
 | [`backup/dw_backup.sql`](backup/dw_backup.sql) | Backup del EDW y de los data marts, con todos los datos |
 

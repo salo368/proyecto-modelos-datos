@@ -19,6 +19,12 @@ from layer4_clean_staging import read_clean
 
 TARGETS = ["fact_ventas", "fact_llamadas_servicio"]
 
+# Special members of dim_empleado and dim_oficina, created by
+# datawarehouse/edw/special_members.sql. A sale points to them instead of
+# carrying a NULL key.
+UNKNOWN = -1        # 'Desconocido': the sales rep did not reach the warehouse
+NOT_ASSIGNED = -2   # 'Sin asignar': the customer has no sales rep
+
 _quality_results = []   # (rule, evaluated, failed) -> dq_result
 
 
@@ -51,6 +57,15 @@ def time_keys(dates):
     loaded = set(pd.read_sql("SELECT tiempo_key FROM dim_tiempo", DW)["tiempo_key"])
     keys = pd.to_datetime(dates, errors="coerce").dt.strftime("%Y%m%d").astype("Int64")
     return keys.where(keys.isin(loaded))
+
+
+def check_special_members(keys, table):
+    """Stop if the warehouse lacks the special members the facts point to."""
+    missing = {UNKNOWN, NOT_ASSIGNED} - set(keys.values())
+    if missing:
+        raise RuntimeError(
+            f"{table} lacks the special members {sorted(missing)}.\n"
+            "Run first: python tools/run_sql.py datawarehouse/edw/special_members.sql")
 
 
 def check_keys(df, required, target):
@@ -124,13 +139,23 @@ def area_sales(run_id, staging_run):
     df["tiempo_key"] = time_keys(df["orderDate"])
     df["cliente_key"] = df["customerNumber"].map(customer_keys)
     df["producto_key"] = df["productCode"].map(product_keys)
-    df["oficina_key"] = df["officeCode"].map(office_keys)
     df["estado_key"] = df["status"].map(status_keys)
-    # Sales reps always come from classicmodels. Customers without a rep
-    # (logged as a warning in Data Quality) keep empleado_key and
-    # oficina_key NULL, which the model allows.
+
+    # Sales reps always come from classicmodels, and the office is the
+    # rep's. A customer without a rep points to 'Sin asignar'; one whose
+    # rep does not exist or was rejected (both warnings in Data Quality),
+    # to 'Desconocido'.
+    check_special_members(employee_keys, "dim_empleado")
+    check_special_members(office_keys, "dim_oficina")
+    no_rep = df["salesRepEmployeeNumber"].isna()
     df["empleado_key"] = df["salesRepEmployeeNumber"].map(
-        lambda n: employee_keys.get((n, "classicmodels")) if pd.notna(n) else None)
+        lambda n: employee_keys.get((n, "classicmodels"), UNKNOWN))
+    df["oficina_key"] = df["officeCode"].map(office_keys).fillna(UNKNOWN)
+    df.loc[no_rep, ["empleado_key", "oficina_key"]] = NOT_ASSIGNED
+    special = int((df["empleado_key"] < 0).sum())
+    record_quality("venta_vendedor_no_resuelto", len(df), special,
+                   f"lines without a resolved sales rep: {special} of {len(df)} "
+                   f"-> 'Sin asignar' / 'Desconocido'")
 
     out = df.rename(columns={
         "orderNumber": "numero_orden", "orderLineNumber": "numero_linea",
@@ -141,8 +166,8 @@ def area_sales(run_id, staging_run):
         "cantidad_ordenada", "precio_unitario", "monto_linea",
         "costo_linea", "margen_linea", "precio_msrp", "dias_hasta_envio"]].copy()
 
-    check_keys(out, ["tiempo_key", "cliente_key", "producto_key", "estado_key"],
-               "fact_ventas")
+    check_keys(out, ["tiempo_key", "cliente_key", "producto_key", "empleado_key",
+                     "oficina_key", "estado_key"], "fact_ventas")
     for c in ["cliente_key", "producto_key", "empleado_key", "oficina_key",
               "estado_key", "dias_hasta_envio"]:
         out[c] = out[c].astype("Int64")
