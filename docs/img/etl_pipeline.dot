@@ -14,7 +14,7 @@ digraph pipeline {
     profile [shape=note, style="filled", fillcolor="#e8ecf1", label=<<B>stg_perfil</B><BR/><FONT POINT-SIZE="9">85 columnas perfiladas</FONT>>];
     }
     subgraph cluster_3 { label="3  Data Quality"; style=dashed; color="#8a96a3";
-    dq [shape=box, style="filled", fillcolor="#fbeccd", label=<<B>Reglas tecnicas y de negocio</B><BR/><FONT POINT-SIZE="9">11 reglas por registro</FONT>>];
+    dq [shape=box, style="filled", fillcolor="#fbeccd", label=<<B>Reglas tecnicas y de negocio</B><BR/><FONT POINT-SIZE="9">13 reglas por registro</FONT>>];
     errlog [shape=note, style="filled", fillcolor="#fbeccd", label=<<B>stg_error_log</B><BR/><FONT POINT-SIZE="9">22 entradas (22 advertencias)</FONT>>];
     }
     subgraph cluster_4 { label="4  Clean Staging"; style=dashed; color="#8a96a3";
@@ -49,8 +49,8 @@ digraph pipeline {
   dq -> clean; dq -> rej [color="#c0392b"];
   clean -> tr_d; clean -> tr_f;
   tr_d -> lr_d; tr_f -> lr_f;
-  lr_d -> dims [penwidth=2, label="7 Load", fontsize=10];
-  lr_f -> facts [penwidth=2, label="7 Load", fontsize=10];
+  lr_d -> dims [penwidth=2, label="7 Load (upsert)", fontsize=10];
+  lr_f -> facts [penwidth=2, label="7 Load (reemplazo)", fontsize=10];
   dims -> tr_f [style=dashed, label="lookup", fontsize=9];
   facts -> dm1; dims -> dm1; facts -> dm2; dims -> dm2;
 }
