@@ -61,10 +61,13 @@ El almacén y el repositorio de metadatos son dos bases separadas dentro de la m
 | 5–11 | Repositorio de metadatos | Esquema base y de staging, ETL de metadatos técnicos, glosario de negocio y linaje semántico, extensión del almacén, reglas de calidad, extensión de uso |
 | 12–17 | Almacén de datos | Modelo estrella, capas de staging y data marts; ETL de staging (capas 1–4), de dimensiones y de hechos (capas 5–7) |
 | 18–19 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
-| 20–21 | Pruebas | Totales del almacén contra las fuentes y camino de rechazo de la capa de calidad |
-| 22 | Reportes | Dashboard de Metabase |
-| 23–25 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
-| 26 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
+| 20–22 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad y Load todo-o-nada ante una falla forzada |
+| 23 | Reportes | Dashboard de Metabase |
+| 24–26 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
+| 27 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
+| 28 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
+
+Antes de sacar conclusiones de los dashboards, lea el [reporte de calidad por etapa](docs/data_quality_report.md): dice qué parte de los datos es verificable y qué decisiones recortan la base de cada análisis.
 
 Todos los pasos se pueden volver a ejecutar sobre bases ya cargadas: los DDL del repositorio usan `IF NOT EXISTS`, las cargas usan *upsert* o reemplazan el contenido, y las tablas de staging solo agregan filas nuevas bajo un `run_id`.
 
@@ -98,6 +101,7 @@ flowchart LR
 ├── reports/                    Dashboard de Metabase                              → reports/README.md
 ├── tools/                      Utilidades compartidas (ver abajo)
 └── docs/
+    ├── data_quality_report.md  Calidad de datos por etapa (generado)
     ├── enunciados/             Enunciados oficiales de las entregas
     └── img/                    Diagramas generados desde las bases (.dot y .png)
 ```
@@ -107,6 +111,7 @@ flowchart LR
 | [`tools/run_sql.py`](tools/run_sql.py) | Ejecuta un archivo `.sql` contra la base indicada por una variable del `.env` (por defecto `DW_URL`) |
 | [`tools/check_connections.py`](tools/check_connections.py) | Verifica las cuatro conexiones del `.env` |
 | [`tools/generate_backup.py`](tools/generate_backup.py) | Genera el backup SQL del almacén (`dw`) o del repositorio (`metadata`) |
+| [`tools/generate_quality_report.py`](tools/generate_quality_report.py) | Genera [`docs/data_quality_report.md`](docs/data_quality_report.md) a partir de lo que cada capa dejó en `staging_dw` y del linaje del repositorio |
 | [`tools/generate_diagrams.py`](tools/generate_diagrams.py) | Genera los diagramas de `docs/img/` introspeccionando las bases; renderiza con Graphviz local o con la imagen Docker `nshine/dot` |
 
 ## Convención de idioma

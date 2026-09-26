@@ -79,6 +79,16 @@ Los tres procesos se ejecutan en orden:
 
 La vista `staging_dw.vw_trazabilidad_capas` muestra cuántas filas pasó cada corrida por cada capa y `staging_dw.vw_reporte_transacciones_malas` lista el contenido de `stg_error_log`.
 
+[`docs/data_quality_report.md`](../docs/data_quality_report.md) resume la última carga en lenguaje de lector. Está construido con esas mismas tablas y con el linaje del repositorio de metadatos, y cubre:
+
+- el recorrido de los registros por cada capa;
+- el embudo por tabla fuente;
+- el resultado de cada regla;
+- qué pasó con cada columna que tenía nulos;
+- qué porcentaje de las ventas y líneas respalda cada tipo de análisis.
+
+Lo regenera `tools/generate_quality_report.py` en cada `run_all.py`.
+
 ### Tolerancia a fallos
 
 Cada capa lee lo que dejó persistido la anterior, así que una falla no obliga a empezar desde las fuentes:

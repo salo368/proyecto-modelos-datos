@@ -95,6 +95,9 @@ PIPELINE = [
      [PY, "tools/generate_backup.py", "metadata"]),
     ("Test: backups restore correctly",
      [PY, "datawarehouse/tests/test_backup_restore.py"]),
+    ("Report: data quality by stage",
+     [PY, "tools/generate_quality_report.py"]),
+
     ("Diagrams: physical models and ETL pipeline",
      [PY, "tools/generate_diagrams.py"]),
 ]
