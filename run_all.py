@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
-Monta el proyecto completo desde cero, en cualquier maquina.
+Build the whole project from scratch.
 
     python run_all.py
 
-Levanta las cuatro piezas del stack en Docker (las dos fuentes, el
-repositorio de metadatos con el almacen, y Metabase), espera a que esten
-listas y ejecuta el pipeline entero de las dos entregas. Al terminar deja
-el dashboard de reportes abierto en http://localhost:3000.
+Starts the Docker stack (both sources, the PostgreSQL instance that holds
+the metadata repository and the data warehouse, and Metabase), waits for
+it to be ready and runs every step of the pipeline in order. Needs only
+Docker and Python 3.9+.
 
-Funciona igual en Windows, macOS y Linux: lo unico que hace falta es
-Docker y Python 3.9 o superior.
-
-Opciones:
-    python run_all.py              monta todo y corre el pipeline
-    python run_all.py --solo-etl   no toca Docker, solo corre el pipeline
-    python run_all.py --reiniciar  borra los datos y empieza de cero
-    python run_all.py --apagar     apaga el stack (conserva los datos)
+Options:
+    python run_all.py              start the stack and run the pipeline
+    python run_all.py --etl-only   skip Docker, run the pipeline against .env
+    python run_all.py --reset      wipe the Docker volumes and start over
+    python run_all.py --down       stop the stack (data is kept)
 """
 import os
 import shutil
@@ -27,291 +24,247 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent
 PY = sys.executable
+RUN_SQL = "tools/run_sql.py"
 
-# Cada paso es (titulo, comando). El orden importa: las dimensiones
-# tienen que existir antes que los hechos, y el metadato tecnico antes
-# que el de negocio.
+# (title, command). Order matters: technical metadata before business
+# metadata, staging before dimensions, dimensions before facts.
 PIPELINE = [
-    ("Repositorio de metadatos: esquema base",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/ddl/metadata_repository_ddl.sql", "METADATA_REPO_URL"]),
+    # --- Source discovery and profiling ---
+    ("Profiling: technical metadata and column profile from the dumps",
+     [PY, "profiling/profile_from_dumps.py"]),
+    ("Profiling: columns and keys report",
+     [PY, "profiling/columns_report.py"]),
+    ("Profiling: referential integrity and cross-source correspondence",
+     [PY, "profiling/referential_profiling.py"]),
+    ("Profiling: undeclared relationship discovery",
+     [PY, "profiling/discover_relationships.py"]),
 
-    ("Repositorio de metadatos: area de staging",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/ddl/metadata_staging_ddl.sql", "METADATA_REPO_URL"]),
+    # --- Metadata repository: sources and business glossary ---
+    ("Metadata repository: core schema",
+     [PY, RUN_SQL, "metadata_repository/ddl/01_core_schema.sql", "METADATA_URL"]),
+    ("Metadata repository: ETL staging schema",
+     [PY, RUN_SQL, "metadata_repository/ddl/02_etl_staging.sql", "METADATA_URL"]),
+    ("Metadata repository: technical metadata ETL",
+     [PY, "metadata_repository/etl/etl_source_metadata.py"]),
+    ("Metadata repository: business metadata and semantic lineage",
+     [PY, RUN_SQL, "metadata_repository/seeds/business_metadata.sql", "METADATA_URL"]),
+    ("Metadata repository: data warehouse extension",
+     [PY, RUN_SQL, "metadata_repository/ddl/03_dw_extension.sql", "METADATA_URL"]),
+    ("Metadata repository: data quality rules",
+     [PY, RUN_SQL, "metadata_repository/seeds/dq_rules.sql", "METADATA_URL"]),
+    ("Metadata repository: usage metadata extension",
+     [PY, RUN_SQL, "metadata_repository/ddl/04_usage_extension.sql", "METADATA_URL"]),
 
-    ("Entrega 1 - ETL de metadatos tecnicos",
-     [PY, "metadata_repository/etl/etl_metadata_repository.py"]),
-
-    ("Entrega 1 - Metadatos de negocio y linaje semantico",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/etl/business_metadata_seed.sql", "METADATA_REPO_URL"]),
-
-    ("Entrega 2 - Extension del repositorio para el almacen",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/ddl/metadata_dw_extension.sql", "METADATA_REPO_URL"]),
-
-    ("Entrega 2 - Reglas de calidad de datos",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/etl/dq_rules_seed.sql", "METADATA_REPO_URL"]),
-
-    ("Entrega 2 - Metadatos de uso (cuarta categoria, Clase 3)",
-     [PY, "datawarehouse/ddl/run_sql.py",
-      "metadata_repository/ddl/metadata_uso_extension.sql", "METADATA_REPO_URL"]),
-
-    ("Entrega 2 - Esquema del almacen dimensional",
-     [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/01_dw_schema.sql"]),
-
-    ("Entrega 2 - Capas de staging del ETL (Giordano, Clase 2)",
-     [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/02_staging_dw.sql"]),
-
-    ("Entrega 2 - Data marts (EDW -> DM, Clase 4-5)",
-     [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/03_data_marts.sql"]),
-
-    ("Entrega 2 - ETL capas 1-4: extraer, limpiar y separar",
+    # --- Data warehouse ---
+    ("Data warehouse: star schema",
+     [PY, RUN_SQL, "datawarehouse/ddl/01_star_schema.sql"]),
+    ("Data warehouse: staging layers",
+     [PY, RUN_SQL, "datawarehouse/ddl/02_staging_layers.sql"]),
+    ("Data warehouse: data marts",
+     [PY, RUN_SQL, "datawarehouse/ddl/03_data_marts.sql"]),
+    ("Data warehouse ETL: layers 1-4 (extract, quality, clean staging)",
      [PY, "datawarehouse/etl/etl_dw_staging.py"]),
-
-    ("Entrega 2 - ETL capas 5-7: dimensiones",
+    ("Data warehouse ETL: layers 5-7, dimensions",
      [PY, "datawarehouse/etl/etl_dw_dimensions.py"]),
-
-    ("Entrega 2 - ETL capas 5-7: hechos",
+    ("Data warehouse ETL: layers 5-7, facts",
      [PY, "datawarehouse/etl/etl_dw_facts.py"]),
 
-    ("Entrega 2 - Catalogo del almacen en el repositorio",
+    # --- Warehouse metadata ---
+    ("Metadata repository: warehouse catalogue and lineage",
      [PY, "metadata_repository/etl/etl_dw_metadata.py"]),
+    ("Metadata repository: usage metadata",
+     [PY, "metadata_repository/etl/etl_usage_metadata.py"]),
 
-    ("Entrega 2 - Medicion de uso del almacen",
-     [PY, "metadata_repository/etl/etl_uso_metadata.py"]),
+    # --- Checks ---
+    ("Test: warehouse totals against the sources",
+     [PY, "datawarehouse/tests/validate_against_sources.py"]),
+    ("Test: data quality rejection path (synthetic data)",
+     [PY, "datawarehouse/tests/test_dq_reject_path.py"]),
 
-    ("Validacion contra las fuentes",
-     [PY, "datawarehouse/queries/validacion.py"]),
-
-    ("Prueba del camino de rechazo (datos sinteticos)",
-     [PY, "datawarehouse/queries/probar_calidad.py"]),
-
-    ("Reportes en Metabase",
-     [PY, "reports/construir_dashboard.py"]),
+    # --- Deliverables ---
+    ("Reports: Metabase dashboard",
+     [PY, "reports/build_dashboard.py"]),
+    ("Backup: data warehouse",
+     [PY, "tools/generate_backup.py", "dw"]),
+    ("Backup: metadata repository",
+     [PY, "tools/generate_backup.py", "metadata"]),
+    ("Test: backups restore correctly",
+     [PY, "datawarehouse/tests/test_backup_restore.py"]),
+    ("Diagrams: physical models and ETL pipeline",
+     [PY, "tools/generate_diagrams.py"]),
 ]
 
 
-# ============================================================
-# Presentacion
-# ============================================================
-
-def titulo(texto):
-    print(f"\n{'=' * 66}\n  {texto}\n{'=' * 66}")
-
-
-def paso(n, total, texto):
-    print(f"\n[{n}/{total}] {texto}")
-    print("-" * 66)
+def banner(text):
+    print(f"\n{'=' * 66}\n  {text}\n{'=' * 66}")
 
 
 # ============================================================
 # Docker
 # ============================================================
 
-def comando_compose():
-    """Devuelve el comando de compose disponible, o None si no hay Docker."""
+def compose_command():
+    """The available compose command, or None if Docker is missing."""
     if shutil.which("docker") is None:
         return None
-    # Docker moderno trae 'docker compose'; los instalados hace anos usan
-    # el binario aparte 'docker-compose'.
     for cmd in (["docker", "compose"], ["docker-compose"]):
         try:
-            r = subprocess.run(cmd + ["version"], capture_output=True, timeout=30)
-            if r.returncode == 0:
+            if subprocess.run(cmd + ["version"], capture_output=True, timeout=30).returncode == 0:
                 return cmd
         except Exception:
             continue
     return None
 
 
-def docker_vivo():
+def docker_running():
     try:
-        r = subprocess.run(["docker", "info"], capture_output=True, timeout=60)
-        return r.returncode == 0
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=60).returncode == 0
     except Exception:
         return False
 
 
-def levantar_stack(compose, reiniciar=False):
-    if reiniciar:
-        print("  Borrando datos anteriores...")
-        subprocess.run(compose + ["down", "-v"], cwd=RAIZ)
-
-    print("  Levantando contenedores (la primera vez descarga imagenes)...")
-    r = subprocess.run(compose + ["up", "-d"], cwd=RAIZ)
-    if r.returncode != 0:
-        sys.exit("\nNo pude levantar el stack. Revisa que Docker este corriendo.")
+def start_stack(compose, reset=False):
+    if reset:
+        print("  Removing previous data...")
+        subprocess.run(compose + ["down", "-v"], cwd=ROOT)
+    print("  Starting containers (the first run downloads the images)...")
+    if subprocess.run(compose + ["up", "-d"], cwd=ROOT).returncode != 0:
+        sys.exit("\nCould not start the stack. Is Docker running?")
 
 
-def esperar_bases(compose, limite=420):
-    """Espera a que los tres motores reporten 'healthy'."""
-    servicios = ["mysql", "postgres-cs", "postgres-dw"]
-    print("  Esperando a que las bases esten listas...")
-    print("  (la primera vez tarda: MySQL restaura classicmodels al arrancar)")
-
-    inicio = time.time()
-    listos = set()
-    while time.time() - inicio < limite:
-        for s in servicios:
-            if s in listos:
+def wait_for_databases(timeout=420):
+    """Wait until the three database containers report 'healthy'."""
+    services = ["mysql", "postgres-cs", "postgres-dw"]
+    print("  Waiting for the databases (MySQL restores classicmodels on first start)...")
+    start = time.time()
+    ready = set()
+    while time.time() - start < timeout:
+        for s in services:
+            if s in ready:
                 continue
             r = subprocess.run(
-                ["docker", "inspect", "--format", "{{.State.Health.Status}}",
-                 f"mpd-{s}"],
-                capture_output=True, text=True,
-            )
+                ["docker", "inspect", "--format", "{{.State.Health.Status}}", f"mpd-{s}"],
+                capture_output=True, text=True)
             if r.stdout.strip() == "healthy":
-                listos.add(s)
-                print(f"    {s}: listo  ({int(time.time() - inicio)}s)")
-        if len(listos) == len(servicios):
-            return True
+                ready.add(s)
+                print(f"    {s}: ready ({int(time.time() - start)}s)")
+        if len(ready) == len(services):
+            return
         time.sleep(5)
+    missing = set(services) - ready
+    sys.exit(f"\nNot ready in time: {', '.join(missing)}\n"
+             f"Check: docker compose logs {' '.join(missing)}")
 
-    faltan = set(servicios) - listos
-    sys.exit(f"\nEstas bases no quedaron listas a tiempo: {', '.join(faltan)}\n"
-             f"Mira que paso con:  docker compose logs {' '.join(faltan)}")
 
-
-def esperar_metabase(limite=300):
+def wait_for_metabase(timeout=300):
     url = os.getenv("METABASE_URL", "http://localhost:3000") + "/api/health"
-    print("  Esperando a Metabase...")
-    inicio = time.time()
-    while time.time() - inicio < limite:
+    print("  Waiting for Metabase...")
+    start = time.time()
+    while time.time() - start < timeout:
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 if b'"ok"' in r.read():
-                    print(f"    metabase: listo  ({int(time.time() - inicio)}s)")
-                    return True
+                    print(f"    metabase: ready ({int(time.time() - start)}s)")
+                    return
         except (urllib.error.URLError, OSError):
             pass
         time.sleep(6)
-    print("    Aviso: Metabase tardo mas de lo esperado. El resto del "
-          "pipeline igual corrio bien.")
-    return False
+    print("    Warning: Metabase is taking longer than expected.")
 
 
 # ============================================================
-# Entorno
+# Python environment
 # ============================================================
 
-def preparar_env():
-    env = RAIZ / ".env"
-    ejemplo = RAIZ / ".env.example"
+def prepare_env_file():
+    env, example = ROOT / ".env", ROOT / ".env.example"
     if not env.exists():
-        if not ejemplo.exists():
-            sys.exit("Falta .env.example en el repositorio.")
-        shutil.copy(ejemplo, env)
-        print("  .env creado a partir de .env.example (apunta al stack local).")
+        shutil.copy(example, env)
+        print("  .env created from .env.example (local stack).")
     else:
-        print("  .env ya existe, se respeta como esta.")
+        print("  Using existing .env.")
+
+    required = ["CLASSICMODELS_URL", "CUSTOMERSERVICE_URL", "METADATA_URL", "DW_URL"]
+    defined = {line.split("=", 1)[0].strip()
+               for line in env.read_text(encoding="utf-8").splitlines()
+               if "=" in line and not line.lstrip().startswith("#")}
+    missing = [v for v in required if v not in defined]
+    if missing:
+        sys.exit(f"  .env is missing {', '.join(missing)}. "
+                 f"Compare it with .env.example or delete it to regenerate it.")
 
 
-def instalar_dependencias():
-    print("  Instalando dependencias de Python...")
-    r = subprocess.run(
-        [PY, "-m", "pip", "install", "-q", "-r", "requirements.txt"],
-        cwd=RAIZ,
-    )
+def install_dependencies():
+    print("  Installing Python dependencies...")
+    r = subprocess.run([PY, "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=ROOT)
     if r.returncode != 0:
-        sys.exit("Fallo la instalacion de dependencias. Revisa requirements.txt")
-
-    # pandas 3.x necesita SQLAlchemy >= 2.0.36. Si no se cumple, pandas no
-    # falla: deja de reconocer los engines y el error aparece mucho despues,
-    # sin mencionar la causa. Mejor detectarlo aca.
-    try:
-        import pandas
-        import sqlalchemy
-        print(f"    pandas {pandas.__version__} + SQLAlchemy {sqlalchemy.__version__}")
-    except ImportError as e:
-        sys.exit(f"No pude importar una dependencia: {e}")
+        sys.exit("Dependency installation failed. Check requirements.txt.")
 
 
 # ============================================================
 # Pipeline
 # ============================================================
 
-def correr_pipeline():
+def run_pipeline():
     total = len(PIPELINE)
-    for i, (nombre, cmd) in enumerate(PIPELINE, 1):
-        paso(i, total, nombre)
-        r = subprocess.run(cmd, cwd=RAIZ)
-        if r.returncode != 0:
-            print(f"\nFallo el paso {i}: {nombre}")
-            print("Los pasos son acumulativos, asi que corrige esto y vuelve "
-                  "a lanzar 'python run_all.py --solo-etl'.")
+    for i, (title, cmd) in enumerate(PIPELINE, 1):
+        print(f"\n[{i}/{total}] {title}\n" + "-" * 66)
+        if subprocess.run(cmd, cwd=ROOT).returncode != 0:
+            print(f"\nStep {i} failed: {title}")
+            print("Fix it and run again with: python run_all.py --etl-only")
             sys.exit(1)
 
 
 def main():
     args = set(sys.argv[1:])
-    compose = comando_compose()
+    compose = compose_command()
 
-    if "--apagar" in args:
+    if "--down" in args:
         if not compose:
-            sys.exit("No encontre Docker en este equipo.")
-        subprocess.run(compose + ["down"], cwd=RAIZ)
-        print("\nStack apagado. Los datos se conservan.")
-        print("Para borrarlos tambien:  python run_all.py --reiniciar")
+            sys.exit("Docker not found.")
+        subprocess.run(compose + ["down"], cwd=ROOT)
+        print("\nStack stopped; data is kept. To wipe it: python run_all.py --reset")
         return
 
-    titulo("Proyecto Final - Modelos y Persistencia de Datos")
-    print("  Entregas 1 y 2, montaje completo en local.")
+    etl_only = "--etl-only" in args
+    banner("Modelos y Persistencia de Datos - full build")
 
-    if "--solo-etl" not in args:
-        if not compose:
-            sys.exit(
-                "\nNo encontre Docker en este equipo.\n"
-                "Instalalo desde https://www.docker.com/products/docker-desktop/\n"
-                "y volve a intentar. Si ya lo tenes y las bases corren en otro\n"
-                "lado, edita el .env y corre:  python run_all.py --solo-etl"
-            )
-        if not docker_vivo():
-            sys.exit(
-                "\nDocker esta instalado pero el demonio no responde.\n"
-                "Abri Docker Desktop, espera a que arranque y volve a intentar."
-            )
-
-        titulo("1. Infraestructura")
-        levantar_stack(compose, reiniciar="--reiniciar" in args)
-        esperar_bases(compose)
+    banner("1. Infrastructure")
+    if etl_only:
+        print("  Skipped (--etl-only).")
     else:
-        titulo("1. Infraestructura")
-        print("  Omitida (--solo-etl).")
+        if not compose:
+            sys.exit("\nDocker not found. Install Docker Desktop, or point .env to "
+                     "existing databases and run: python run_all.py --etl-only")
+        if not docker_running():
+            sys.exit("\nDocker is installed but the daemon is not responding.")
+        start_stack(compose, reset="--reset" in args)
+        wait_for_databases()
 
-    titulo("2. Entorno de Python")
-    preparar_env()
-    instalar_dependencias()
+    banner("2. Python environment")
+    prepare_env_file()
+    install_dependencies()
 
-    titulo("3. Pipeline de datos")
-    if "--solo-etl" not in args:
-        esperar_metabase()
-    correr_pipeline()
+    banner("3. Pipeline")
+    if not etl_only:
+        wait_for_metabase()
+    run_pipeline()
 
-    titulo("Listo")
+    banner("Done")
     print("""
-  El proyecto quedo montado y cargado.
+    Reports (Metabase)   http://localhost:3000
+        user             grupo@javeriana.edu.co
+        password         Javeriana2026!
 
-    Reportes            http://localhost:3000
-        usuario         grupo@javeriana.edu.co
-        clave           Javeriana2026!
+    Data warehouse       localhost:5434 / database 'dw'
+    Metadata repository  localhost:5434 / database 'metadata'
+    classicmodels        localhost:3307
+    customerservice      localhost:5433
+    (user 'postgres' or 'root', password 'javeriana')
 
-    Almacen de datos    localhost:5434 / base 'dw'
-    Repo de metadatos   localhost:5434 / base 'metadata'
-    classicmodels       localhost:3307
-    customerservice     localhost:5433
-
-    (usuario 'postgres' o 'root', clave 'javeriana')
-
-  Documentos:
-    docs/Entrega_1/Documento_Entrega_1.md
-    docs/Entrega_2/Documento_Entrega_2.md
-
-  Para apagar sin perder nada:   python run_all.py --apagar
+  Stop the stack keeping the data:  python run_all.py --down
 """)
 
 

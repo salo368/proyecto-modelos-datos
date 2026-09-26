@@ -1,19 +1,16 @@
 """
-Registra el almacen de datos en el repositorio de metadatos - Entrega 2.
+Registers the data warehouse in the metadata repository.
 
-Puebla las tablas dw_object, dw_measure, dw_attribute y dw_lineage
-introspeccionando el esquema REAL del almacen, de modo que el metadato
-no se escribe a mano y no se desincroniza del modelo.
+Fills dw_object, dw_measure and dw_attribute by introspecting the live
+warehouse schema, so the catalogue always matches the deployed model.
+Descriptions, additivity, SCD types and source -> warehouse lineage are
+declared below because they cannot be derived from the schema.
 
-El linaje (que columna de que fuente alimenta cada medida o atributo)
-si se declara explicitamente en MAPA_LINAJE, porque es conocimiento de
-negocio que no se puede deducir del esquema.
+The catalogue is rebuilt from scratch on every run.
 
-Correr DESPUES de:
-    python datawarehouse/etl/etl_dw_dimensions.py
-    python datawarehouse/etl/etl_dw_facts.py
+Run after the dimension and fact ETLs.
 
-Uso:
+Usage:
     python metadata_repository/etl/etl_dw_metadata.py
 """
 import os
@@ -23,26 +20,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DW   = sa.create_engine(os.getenv("DW_URL"))
-META = sa.create_engine(os.getenv("METADATA_REPO_URL"))
+DW = sa.create_engine(os.getenv("DW_URL"))
+META = sa.create_engine(os.getenv("METADATA_URL"))
 
+# Schema that holds the data-mart views; facts and dimensions live in public.
+DATA_MART_SCHEMA = "dm"
 
-# ============================================================
-# Descripcion de cada objeto del almacen
-# ============================================================
-
-# Tipo de dimension lentamente cambiante (Clase 4-5) y su justificacion.
-#
-# Todas las dimensiones son TIPO 1 (sobrescritura, sin historial) por una
-# razon concreta del origen: las dos fuentes se restauran desde dumps
-# estaticos, no son feeds incrementales. No existe captura de cambios ni
-# columnas temporales en el origen, asi que no hay historia que preservar:
-# un TIPO 2 generaria versiones vacias.
-#
-# Si las fuentes pasaran a ser feeds vivos, dim_cliente y dim_producto
-# serian las candidatas naturales a TIPO 2, porque el limite de credito y
-# el precio cambian con el tiempo y el analisis historico deberia usar el
-# valor vigente en el momento de cada venta, no el actual.
+# ------------------------------------------------------------
+# Slowly changing dimension type per dimension, with its rationale.
+# All dimensions are type 1: the sources are static snapshots with no
+# change capture, so there is no history to preserve.
+# ------------------------------------------------------------
 SCD = {
     "dim_tiempo": ("TIPO_1",
         "Dimension generada y deterministica: una fecha nunca cambia de "
@@ -66,7 +54,8 @@ SCD = {
         "cambia entre cargas."),
 }
 
-OBJETOS = {
+# object name -> (type, grain, description, is_conformed)
+OBJECTS = {
     "fact_ventas": (
         "FACT", "Una linea de una orden de compra.",
         "Hecho principal del almacen. Registra cada linea de detalle de las "
@@ -106,8 +95,7 @@ OBJETOS = {
     "vw_interaccion_cliente_producto": (
         "VIEW", "Cliente x producto x mes.",
         "Data mart (schema dm) que cruza los dos hechos al grano "
-        "cliente-producto-mes. Agrega y segrega desde el EDW, como la flecha "
-        "EDW -> DM de la Clase 4-5. Responde que productos generan mas llamadas "
+        "cliente-producto-mes. Responde que productos generan mas llamadas "
         "por unidad vendida, pregunta que ninguna fuente contesta por si sola.", False),
     "vw_ventas_mensuales_linea": (
         "VIEW", "Mes x linea de producto.",
@@ -115,12 +103,8 @@ OBJETOS = {
         "y margen por mes y linea de producto, solo ventas efectivas.", False),
 }
 
-# Schema donde vive cada vista: el modelo estrella (EDW) esta en public y
-# los data marts en dm, siguiendo el flujo ODS -> EDW -> DM de la Clase 4-5.
-SCHEMA_VISTAS = "dm"
-
-# Aditividad y formula de cada medida.
-MEDIDAS = {
+# (object, column) -> (additivity, formula, description)
+MEASURES = {
     ("fact_ventas", "cantidad_ordenada"): (
         "ADITIVA", "orderdetails.quantityOrdered",
         "Unidades del producto pedidas en la linea."),
@@ -151,9 +135,8 @@ MEDIDAS = {
         "Longitud de la nota del agente, como proxy de complejidad del caso."),
 }
 
-# Linaje: (objeto_dw, columna_dw) -> (tabla_fuente, columna_fuente, regla)
-# Un None en la tabla fuente significa que el dato se genera o se calcula.
-MAPA_LINAJE = {
+# (object, column) -> (source table, source column, transformation rule)
+LINEAGE = {
     # --- fact_ventas ---
     ("fact_ventas", "cantidad_ordenada"): ("orderdetails", "quantityOrdered", "copia directa"),
     ("fact_ventas", "precio_unitario"):   ("orderdetails", "priceEach", "copia directa"),
@@ -170,7 +153,7 @@ MAPA_LINAJE = {
     ("fact_llamadas_servicio", "longitud_texto"):    ("cs_customer_calls", "text", "calculo: length(text)"),
     ("fact_llamadas_servicio", "texto_llamada"):     ("cs_customer_calls", "text", "dimension degenerada"),
 
-    # --- dim_cliente (conformada) ---
+    # --- dim_cliente (conformed) ---
     ("dim_cliente", "numero_cliente"):     ("customers", "customerNumber", "llave de negocio, copia directa"),
     ("dim_cliente", "nombre_cliente"):     ("customers", "customerName", "copia directa"),
     ("dim_cliente", "contacto_nombre"):    ("customers", "contactFirstName", "copia directa"),
@@ -185,7 +168,7 @@ MAPA_LINAJE = {
     ("dim_cliente", "presente_en_ventas"):   ("customers", "customerNumber", "bandera: existe en classicmodels"),
     ("dim_cliente", "presente_en_servicio"): ("cs_customers", "customernumber", "bandera: existe en customerservice"),
 
-    # --- dim_producto (conformada) ---
+    # --- dim_producto (conformed) ---
     ("dim_producto", "codigo_producto"):   ("products", "productCode", "llave de negocio, copia directa"),
     ("dim_producto", "nombre_producto"):   ("products", "productName", "copia directa"),
     ("dim_producto", "linea_producto"):    ("products", "productLine", "copia directa"),
@@ -197,7 +180,7 @@ MAPA_LINAJE = {
     ("dim_producto", "presente_en_ventas"):   ("products", "productCode", "bandera: existe en classicmodels"),
     ("dim_producto", "presente_en_servicio"): ("cs_products", "productcode", "bandera: existe en customerservice"),
 
-    # --- dim_empleado (no conformada) ---
+    # --- dim_empleado (not conformed) ---
     ("dim_empleado", "numero_empleado"): ("employees", "employeeNumber", "llave de negocio compuesta con sistema_origen"),
     ("dim_empleado", "nombre"):          ("employees", "firstName", "union de employees y cs_employees"),
     ("dim_empleado", "apellido"):        ("employees", "lastName", "union de employees y cs_employees"),
@@ -217,39 +200,40 @@ MAPA_LINAJE = {
     ("dim_estado_orden", "es_efectiva"): ("orders", "status", "derivada: FALSE si status es Cancelled, Disputed u On Hold"),
 }
 
+BUSINESS_KEYS = {"numero_cliente", "codigo_producto", "numero_empleado",
+                 "codigo_oficina", "estado", "fecha"}
+DEGENERATE_COLUMNS = {"numero_orden", "numero_linea", "texto_llamada"}
 
-def rol_atributo(columna, es_pk, tabla):
-    if es_pk:
+
+def attribute_role(column, is_pk, table):
+    if is_pk:
         return "SURROGATE_KEY"
-    if columna.endswith("_key"):
+    if column.endswith("_key"):
         return "FOREIGN_KEY"
-    if columna.startswith("presente_en") or columna.startswith("es_"):
+    if column.startswith("presente_en") or column.startswith("es_"):
         return "FLAG"
-    if tabla.startswith("fact_") and columna in ("numero_orden", "numero_linea", "texto_llamada"):
+    if table.startswith("fact_") and column in DEGENERATE_COLUMNS:
         return "DEGENERATE"
-    if columna in ("numero_cliente", "codigo_producto", "numero_empleado",
-                   "codigo_oficina", "estado", "fecha"):
+    if column in BUSINESS_KEYS:
         return "BUSINESS_KEY"
     return "DESCRIPTIVE"
 
 
 def main():
     insp = sa.inspect(DW)
-    tablas = insp.get_table_names(schema="public")
-    vistas = insp.get_view_names(schema=SCHEMA_VISTAS)
-    schema_de = {**{t: "public" for t in tablas},
-                 **{v: SCHEMA_VISTAS for v in vistas}}
+    tables = insp.get_table_names(schema="public")
+    views = insp.get_view_names(schema=DATA_MART_SCHEMA)
+    schema_of = {**{t: "public" for t in tables},
+                 **{v: DATA_MART_SCHEMA for v in views}}
 
     with META.begin() as m:
-        # Limpieza: el catalogo del almacen se regenera completo en cada
-        # corrida para que nunca describa un modelo que ya cambio.
         m.execute(sa.text("DELETE FROM dw_lineage"))
         m.execute(sa.text("DELETE FROM dw_measure"))
         m.execute(sa.text("DELETE FROM dw_attribute"))
         m.execute(sa.text("DELETE FROM dw_object"))
 
-        # Indice de las columnas de las fuentes, para resolver el linaje.
-        fuentes = {
+        # (table, column) -> column_id of the catalogued source columns.
+        source_columns = {
             (r.table_name, r.column_name): r.column_id
             for r in m.execute(sa.text("""
                 SELECT dt.table_name, dc.column_name, dc.column_id
@@ -257,76 +241,76 @@ def main():
             """))
         }
 
-        n_obj = n_med = n_atr = n_lin = 0
+        n_objects = n_measures = n_attributes = n_lineage = 0
 
-        for nombre in sorted(tablas) + sorted(vistas):
-            if nombre not in OBJETOS:
+        for name in sorted(tables) + sorted(views):
+            if name not in OBJECTS:
                 continue
-            tipo, grano, descripcion, conformada = OBJETOS[nombre]
+            object_type, grain, description, conformed = OBJECTS[name]
 
             with DW.connect() as d:
-                filas = d.execute(sa.text(
-                    f"SELECT COUNT(*) FROM {schema_de[nombre]}.{nombre}")).scalar()
+                rows = d.execute(sa.text(
+                    f"SELECT COUNT(*) FROM {schema_of[name]}.{name}")).scalar()
 
-            scd_tipo, scd_just = SCD.get(nombre, (None, None))
-            obj_id = m.execute(sa.text("""
+            scd_type, scd_reason = SCD.get(name, (None, None))
+            object_id = m.execute(sa.text("""
                 INSERT INTO dw_object (object_name, object_type, grain,
                                        description, is_conformed, row_count,
                                        scd_type, scd_justificacion)
                 VALUES (:n, :t, :g, :d, :c, :r, :st, :sj)
                 RETURNING dw_object_id
-            """), {"n": nombre, "t": tipo, "g": grano, "d": descripcion,
-                   "c": conformada, "r": filas,
-                   "st": scd_tipo, "sj": scd_just}).scalar()
-            n_obj += 1
+            """), {"n": name, "t": object_type, "g": grain, "d": description,
+                   "c": conformed, "r": rows,
+                   "st": scd_type, "sj": scd_reason}).scalar()
+            n_objects += 1
 
-            if tipo == "VIEW":
+            if object_type == "VIEW":
                 continue
 
-            pk = set(insp.get_pk_constraint(nombre, schema="public")
+            pk = set(insp.get_pk_constraint(name, schema="public")
                      .get("constrained_columns") or [])
 
-            for col in insp.get_columns(nombre, schema="public"):
-                cname, ctype = col["name"], str(col["type"])
-                clave = (nombre, cname)
+            for col in insp.get_columns(name, schema="public"):
+                col_name, col_type = col["name"], str(col["type"])
+                key = (name, col_name)
 
-                if clave in MEDIDAS:
-                    aditividad, formula, desc = MEDIDAS[clave]
-                    destino_id = m.execute(sa.text("""
+                if key in MEASURES:
+                    additivity, formula, desc = MEASURES[key]
+                    target_id = m.execute(sa.text("""
                         INSERT INTO dw_measure (dw_object_id, measure_name, data_type,
                                                 additivity, formula, description)
                         VALUES (:o, :n, :t, :a, :f, :d)
                         RETURNING dw_measure_id
-                    """), {"o": obj_id, "n": cname, "t": ctype,
-                           "a": aditividad, "f": formula, "d": desc}).scalar()
-                    columna_destino = "target_measure_id"
-                    n_med += 1
+                    """), {"o": object_id, "n": col_name, "t": col_type,
+                           "a": additivity, "f": formula, "d": desc}).scalar()
+                    target_column = "target_measure_id"
+                    n_measures += 1
                 else:
-                    destino_id = m.execute(sa.text("""
+                    target_id = m.execute(sa.text("""
                         INSERT INTO dw_attribute (dw_object_id, attribute_name,
                                                   data_type, attribute_role)
                         VALUES (:o, :n, :t, :r)
                         RETURNING dw_attribute_id
-                    """), {"o": obj_id, "n": cname, "t": ctype,
-                           "r": rol_atributo(cname, cname in pk, nombre)}).scalar()
-                    columna_destino = "target_attribute_id"
-                    n_atr += 1
+                    """), {"o": object_id, "n": col_name, "t": col_type,
+                           "r": attribute_role(col_name, col_name in pk, name)}).scalar()
+                    target_column = "target_attribute_id"
+                    n_attributes += 1
 
-                if clave in MAPA_LINAJE:
-                    tabla_f, col_f, regla = MAPA_LINAJE[clave]
+                if key in LINEAGE:
+                    src_table, src_column, rule = LINEAGE[key]
                     m.execute(sa.text(f"""
-                        INSERT INTO dw_lineage (source_column_id, {columna_destino},
+                        INSERT INTO dw_lineage (source_column_id, {target_column},
                                                 transformation_rule)
                         VALUES (:s, :d, :r)
-                    """), {"s": fuentes.get((tabla_f, col_f)),
-                           "d": destino_id, "r": regla})
-                    n_lin += 1
+                    """), {"s": source_columns.get((src_table, src_column)),
+                           "d": target_id, "r": rule})
+                    n_lineage += 1
 
-    print("Catalogo del almacen registrado en el repositorio de metadatos:")
-    print(f"  dw_object    : {n_obj} objetos")
-    print(f"  dw_measure   : {n_med} medidas")
-    print(f"  dw_attribute : {n_atr} atributos")
-    print(f"  dw_lineage   : {n_lin} vinculos de linaje fuente -> almacen")
+    print("Warehouse catalogue registered in the metadata repository:")
+    print(f"  dw_object    : {n_objects} objects")
+    print(f"  dw_measure   : {n_measures} measures")
+    print(f"  dw_attribute : {n_attributes} attributes")
+    print(f"  dw_lineage   : {n_lineage} source -> warehouse links")
 
 
 if __name__ == "__main__":
