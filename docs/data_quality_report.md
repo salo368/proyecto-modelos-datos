@@ -26,7 +26,7 @@ Qué le pasó a los datos en cada capa de la última carga completa: cuántos re
 | 3 · Data Quality | 4.335 | 4.335 | 22 hallazgos registrados en el reporte de transacciones malas |
 | 4 · Clean Staging | 4.335 | 4.335 | 4.335 limpios, 0 rechazados |
 | 5 · Transformation | 4.335 | 4.498 | 6 dimensiones y 2 hechos conformados |
-| 6 · Load-Ready Publish | 4.498 | 4.498 | forma definitiva, sin transformaciones pendientes |
+| 6 · Load-Ready Publish | 4.498 | 4.498 | forma definitiva, verificada contra las tablas destino |
 | 7 · Load | 4.498 | 4.498 | dimensiones por llave de negocio y hechos reemplazados, cada rama en una sola transacción. Aparte, el almacén tiene 4 miembros especiales (Desconocido y Sin asignar) |
 
 Entre las capas 4 y 5 el número de filas cambia porque la transformación cambia el grano: varias tablas fuente se consolidan en una dimensión, `dim_tiempo` se genera sin fuente y las tablas no usadas por el modelo no continúan.
@@ -55,10 +55,13 @@ Entre las capas 4 y 5 el número de filas cambia porque la transformación cambi
 |---|---|---|---:|---:|---:|
 | `formato_email` | Técnica | Advierte | 53 | 0 | 0,0 % |
 | `campos_obligatorios` | Técnica | Rechaza | 4.335 | 0 | 0,0 % |
+| `llave_duplicada` | Técnica | Rechaza | 4.335 | 0 | 0,0 % |
+| `registro_duplicado` | Técnica | Rechaza | 4.335 | 0 | 0,0 % |
 | `tipo_de_dato_valido` | Técnica | Rechaza | 3.935 | 0 | 0,0 % |
 | `cliente_con_vendedor` | Negocio | Advierte | 122 | 22 | 18,0 % |
 | `consistencia_entre_fuentes_cliente` | Negocio | Advierte | 122 | 0 | 0,0 % |
 | `consistencia_entre_fuentes_producto` | Negocio | Advierte | 110 | 0 | 0,0 % |
+| `orden_con_lineas_rechazadas` | Negocio | Advierte | 326 | 0 | 0,0 % |
 | `precio_sugerido_coherente` | Negocio | Advierte | 110 | 0 | 0,0 % |
 | `referencia_opcional_no_resuelta` | Negocio | Advierte | 145 | 0 | 0,0 % |
 | `envio_consistente_con_estado` | Negocio | Rechaza | 326 | 0 | 0,0 % |
