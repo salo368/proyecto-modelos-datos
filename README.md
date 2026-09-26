@@ -132,15 +132,15 @@ El repositorio está organizado por dominio, no por entrega, de modo que cada en
 │   ├── mysqlsampledatabase.sql        classicmodels (MySQL)
 │   └── customerservice.sql            customerservice (PostgreSQL)
 ├── metadata_repository/               Repositorio de metadatos
-│   ├── ddl/                           esquema base + metadata_dw_extension.sql (Entrega 2)
-│   ├── etl/                           carga técnica, de negocio, del almacén y reglas de calidad
-│   ├── queries/                       consultas_repositorio.sql (las 6 del enunciado)
-│   └── backup/                        metadata_repo_backup.sql
+│   ├── ddl/                           esquema base + extensiones del almacén y de uso (Entrega 2)
+│   ├── etl/                           carga técnica, de negocio, del almacén, de uso y reglas de calidad
+│   ├── queries/                       las 6 del enunciado + linaje e impacto
+│   └── backup/                        metadata_repo_backup.sql (18 tablas)
 ├── datawarehouse/                     Almacén de datos (Entrega 2)
-│   ├── ddl/                           00_crear_base.py, 01_dw_schema.sql, generar_diagramas.py
-│   ├── etl/                           etl_dw_dimensions.py, etl_dw_facts.py
-│   ├── queries/                       validacion.py, pregunta_negocio.sql
-│   └── backup/                        generar_backup.py, dw_backup.sql
+│   ├── ddl/                           01 modelo estrella (EDW), 02 capas de Giordano, 03 data marts
+│   ├── etl/                           staging (capas 1-4), dimensiones y hechos (capas 5-7)
+│   ├── queries/                       validación, prueba del camino de rechazo, consultas de negocio
+│   └── backup/                        generador, prueba de restauración, dw_backup.sql
 ├── profiling/                         Descubrimiento y perfilamiento (Entrega 1)
 │   ├── discover_and_profile.py, discover_relationships.py, relational_profiling.py
 │   ├── compare_common_entities.py, mysqlprofile.py, profile.py, report_keys.py

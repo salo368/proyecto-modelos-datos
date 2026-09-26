@@ -24,7 +24,7 @@ SELECT nombre_producto,
        SUM(num_llamadas)      AS llamadas,
        ROUND(SUM(num_llamadas)::numeric
              / NULLIF(SUM(unidades_vendidas), 0), 4) AS llamadas_por_unidad
-FROM vw_interaccion_cliente_producto
+FROM dm.vw_interaccion_cliente_producto
 GROUP BY nombre_producto, linea_producto
 HAVING SUM(unidades_vendidas) > 0
    AND SUM(num_llamadas)      > 0
@@ -89,7 +89,7 @@ SELECT numero_cliente,
        pais,
        ROUND(SUM(monto_vendido), 2) AS monto_comprado,
        SUM(num_llamadas)            AS llamadas
-FROM vw_interaccion_cliente_producto
+FROM dm.vw_interaccion_cliente_producto
 GROUP BY numero_cliente, nombre_cliente, pais
 ORDER BY monto_comprado DESC
 LIMIT 25;

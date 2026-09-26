@@ -313,233 +313,35 @@ Cada dimensión tiene dos llaves:
 
 ¿Por qué dos? Porque la llave de negocio puede cambiar, repetirse entre fuentes, o ser un texto largo. La subrogada es un entero estable y rápido. Es el estándar en almacenes de datos.
 
-### 3.2 El archivo DDL
+### 3.2 Los tres archivos DDL del almacén
 
-Creá `datawarehouse/ddl/01_dw_schema.sql`:
+El almacén se define en tres archivos, y cada uno corresponde a una parte distinta de la arquitectura que se vio en clase. **No copies su contenido de esta guía: abrilos, porque cada decisión está comentada al lado de la línea que la implementa.**
 
-```sql
--- ============================================================
--- Almacen de Datos - Modelo dimensional (constelacion)
--- Proyecto: Modelos y Persistencia de Datos - Entrega 2
---
--- Dos hechos (fact_ventas, fact_llamadas_servicio) que comparten
--- las dimensiones conformadas dim_cliente, dim_producto y dim_tiempo.
---
--- Motor: PostgreSQL 18 (base 'dw' en Railway).
--- ============================================================
+| Archivo | Qué crea | Qué parte de la clase implementa |
+|---|---|---|
+| [`datawarehouse/ddl/01_dw_schema.sql`](../../datawarehouse/ddl/01_dw_schema.sql) | Las 6 dimensiones y los 2 hechos del modelo estrella, en el schema `public` | El **EDW** de la Clase 4-5 (diapositiva 12) |
+| [`datawarehouse/ddl/02_staging_dw.sql`](../../datawarehouse/ddl/02_staging_dw.sql) | Las tablas de las capas del ETL, en el schema `staging_dw` | Las **7 capas de Giordano** de la Clase 2 (diapositivas 14–19) |
+| [`datawarehouse/ddl/03_data_marts.sql`](../../datawarehouse/ddl/03_data_marts.sql) | Dos vistas en el schema `dm` | Los **Data Marts** de la Clase 4-5 (diapositiva 12) |
 
-DROP TABLE IF EXISTS fact_ventas             CASCADE;
-DROP TABLE IF EXISTS fact_llamadas_servicio  CASCADE;
-DROP TABLE IF EXISTS dim_tiempo              CASCADE;
-DROP TABLE IF EXISTS dim_cliente             CASCADE;
-DROP TABLE IF EXISTS dim_producto            CASCADE;
-DROP TABLE IF EXISTS dim_empleado            CASCADE;
-DROP TABLE IF EXISTS dim_oficina             CASCADE;
-DROP TABLE IF EXISTS dim_estado_orden        CASCADE;
+Cuando abras `01_dw_schema.sql`, fijate en tres cosas:
 
--- ------------------------------------------------------------
--- DIMENSIONES CONFORMADAS (las comparten los dos hechos)
--- ------------------------------------------------------------
+- Cada dimensión tiene su llave subrogada (`SERIAL`) y su llave de negocio con restricción `UNIQUE`.
+- `dim_empleado` tiene una llave de negocio **compuesta**: `UNIQUE (numero_empleado, sistema_origen)`.
+- Al final hay índices sobre todas las llaves foráneas de los hechos. PostgreSQL no los crea solo, y sin ellos cada join recorre la tabla completa.
 
-CREATE TABLE dim_tiempo (
-    tiempo_key      INTEGER PRIMARY KEY,        -- formato AAAAMMDD, ej. 20030106
-    fecha           DATE    NOT NULL UNIQUE,
-    anio            SMALLINT NOT NULL,
-    trimestre       SMALLINT NOT NULL,
-    mes             SMALLINT NOT NULL,
-    nombre_mes      VARCHAR(12) NOT NULL,
-    dia             SMALLINT NOT NULL,
-    dia_semana      SMALLINT NOT NULL,          -- 1 = lunes
-    nombre_dia      VARCHAR(12) NOT NULL,
-    es_fin_semana   BOOLEAN NOT NULL,
-    anio_mes        CHAR(7) NOT NULL            -- '2003-01', util para agrupar
-);
+### 3.3 Ejecutarlos
 
-CREATE TABLE dim_cliente (
-    cliente_key             SERIAL PRIMARY KEY,
-    numero_cliente          INTEGER NOT NULL UNIQUE,   -- llave de negocio
-    nombre_cliente          VARCHAR(100),
-    contacto_nombre         VARCHAR(100),
-    contacto_apellido       VARCHAR(100),
-    telefono                VARCHAR(50),
-    direccion_completa      VARCHAR(220),              -- addressLine1 + addressLine2
-    ciudad                  VARCHAR(100),
-    estado_region           VARCHAR(100),
-    codigo_postal           VARCHAR(20),
-    pais                    VARCHAR(100),
-    limite_credito          NUMERIC(12,2),
-    presente_en_ventas      BOOLEAN NOT NULL DEFAULT FALSE,
-    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE
-);
+El proyecto trae un script, [`datawarehouse/ddl/run_sql.py`](../../datawarehouse/ddl/run_sql.py), que corre cualquier archivo `.sql` contra la base que le digas. Por defecto usa el almacén (`DW_URL`).
 
-CREATE TABLE dim_producto (
-    producto_key            SERIAL PRIMARY KEY,
-    codigo_producto         VARCHAR(20) NOT NULL UNIQUE,  -- llave de negocio
-    nombre_producto         VARCHAR(140),
-    linea_producto          VARCHAR(60),
-    descripcion_linea       TEXT,
-    escala                  VARCHAR(20),
-    proveedor               VARCHAR(100),
-    precio_compra           NUMERIC(12,2),
-    precio_msrp             NUMERIC(12,2),
-    presente_en_ventas      BOOLEAN NOT NULL DEFAULT FALSE,
-    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE
-);
-
--- ------------------------------------------------------------
--- DIMENSION NO CONFORMADA
---
--- Los 23 empleados de classicmodels y los 30 de customerservice
--- no comparten ni una sola llave (solape 0% medido en la Entrega 1).
--- La llave subrogada mas el atributo sistema_origen permiten que
--- ambas poblaciones convivan en la misma tabla sin colisionar.
--- Esta es la solucion al problema de calidad de la Entrega 1.
--- ------------------------------------------------------------
-
-CREATE TABLE dim_empleado (
-    empleado_key        SERIAL PRIMARY KEY,
-    numero_empleado     INTEGER NOT NULL,
-    sistema_origen      VARCHAR(20) NOT NULL,   -- 'classicmodels' | 'customerservice'
-    nombre              VARCHAR(100),
-    apellido            VARCHAR(100),
-    email               VARCHAR(140),
-    cargo               VARCHAR(80),
-    numero_oficina      VARCHAR(20),
-    UNIQUE (numero_empleado, sistema_origen)    -- la llave real es compuesta
-);
-
--- ------------------------------------------------------------
--- DIMENSIONES EXCLUSIVAS DE classicmodels
--- ------------------------------------------------------------
-
-CREATE TABLE dim_oficina (
-    oficina_key     SERIAL PRIMARY KEY,
-    codigo_oficina  VARCHAR(20) NOT NULL UNIQUE,
-    ciudad          VARCHAR(100),
-    pais            VARCHAR(100),
-    region          VARCHAR(100),
-    territorio      VARCHAR(20)
-);
-
-CREATE TABLE dim_estado_orden (
-    estado_key      SERIAL PRIMARY KEY,
-    estado          VARCHAR(30) NOT NULL UNIQUE,
-    es_efectiva     BOOLEAN NOT NULL   -- FALSE para Cancelled / Disputed / On Hold
-);
-
--- ------------------------------------------------------------
--- HECHO PRINCIPAL: fact_ventas
--- Grano: una linea de una orden de compra.
--- ------------------------------------------------------------
-
-CREATE TABLE fact_ventas (
-    venta_key           BIGSERIAL PRIMARY KEY,
-
-    -- Llaves foraneas hacia las dimensiones
-    tiempo_key          INTEGER NOT NULL REFERENCES dim_tiempo(tiempo_key),
-    cliente_key         INTEGER NOT NULL REFERENCES dim_cliente(cliente_key),
-    producto_key        INTEGER NOT NULL REFERENCES dim_producto(producto_key),
-    empleado_key        INTEGER          REFERENCES dim_empleado(empleado_key),
-    oficina_key         INTEGER          REFERENCES dim_oficina(oficina_key),
-    estado_key          INTEGER NOT NULL REFERENCES dim_estado_orden(estado_key),
-
-    -- Dimensiones degeneradas (viven en el hecho, no valen una tabla propia)
-    numero_orden        INTEGER NOT NULL,
-    numero_linea        SMALLINT NOT NULL,
-
-    -- Medidas
-    cantidad_ordenada   INTEGER       NOT NULL,
-    precio_unitario     NUMERIC(12,2) NOT NULL,
-    monto_linea         NUMERIC(14,2) NOT NULL,   -- cantidad * precio
-    costo_linea         NUMERIC(14,2),            -- cantidad * precio_compra
-    margen_linea        NUMERIC(14,2),            -- monto - costo
-    precio_msrp         NUMERIC(12,2),
-    dias_hasta_envio    SMALLINT,                 -- NULL si la orden no se despacho
-
-    UNIQUE (numero_orden, numero_linea)
-);
-
--- ------------------------------------------------------------
--- HECHO SECUNDARIO: fact_llamadas_servicio
--- Grano: una llamada al centro de servicio.
--- ------------------------------------------------------------
-
-CREATE TABLE fact_llamadas_servicio (
-    llamada_key         BIGSERIAL PRIMARY KEY,
-
-    tiempo_key          INTEGER NOT NULL REFERENCES dim_tiempo(tiempo_key),
-    cliente_key         INTEGER NOT NULL REFERENCES dim_cliente(cliente_key),
-    producto_key        INTEGER NOT NULL REFERENCES dim_producto(producto_key),
-    empleado_key        INTEGER NOT NULL REFERENCES dim_empleado(empleado_key),
-
-    texto_llamada       TEXT,                     -- dimension degenerada
-
-    cantidad_llamadas   SMALLINT NOT NULL DEFAULT 1,
-    longitud_texto      INTEGER
-);
-
--- ------------------------------------------------------------
--- Indices sobre las llaves foraneas
--- (PostgreSQL no los crea solo, y sin ellos los JOIN son lentos)
--- ------------------------------------------------------------
-
-CREATE INDEX idx_fv_tiempo   ON fact_ventas(tiempo_key);
-CREATE INDEX idx_fv_cliente  ON fact_ventas(cliente_key);
-CREATE INDEX idx_fv_producto ON fact_ventas(producto_key);
-CREATE INDEX idx_fv_empleado ON fact_ventas(empleado_key);
-CREATE INDEX idx_fl_tiempo   ON fact_llamadas_servicio(tiempo_key);
-CREATE INDEX idx_fl_cliente  ON fact_llamadas_servicio(cliente_key);
-CREATE INDEX idx_fl_producto ON fact_llamadas_servicio(producto_key);
-
--- ------------------------------------------------------------
--- Schema de staging para las capas intermedias del ETL
--- ------------------------------------------------------------
-
-CREATE SCHEMA IF NOT EXISTS staging_dw;
-```
-
-### 3.3 Ejecutarlo
-
-Creá `datawarehouse/ddl/run_sql.py` — este script sirve para correr cualquier archivo `.sql` contra el almacén:
-
-```python
-"""Ejecuta un archivo .sql contra la base indicada.
-
-Uso:
-    python datawarehouse/ddl/run_sql.py datawarehouse/ddl/01_dw_schema.sql
-    python datawarehouse/ddl/run_sql.py archivo.sql METADATA_REPO_URL
-"""
-import os
-import sys
-from dotenv import load_dotenv
-import sqlalchemy as sa
-
-load_dotenv()
-
-ruta = sys.argv[1]
-variable = sys.argv[2] if len(sys.argv) > 2 else "DW_URL"
-
-url = os.getenv(variable)
-if not url:
-    raise SystemExit(f"No encontre la variable {variable} en el .env")
-
-with open(ruta, encoding="utf-8") as f:
-    sql = f.read()
-
-eng = sa.create_engine(url, isolation_level="AUTOCOMMIT")
-with eng.connect() as con:
-    con.execute(sa.text(sql))
-
-print(f"Ejecutado {ruta} contra {variable}")
-```
-
-Corré:
+Corré los tres, **en este orden** — los data marts son vistas sobre las tablas, así que las tablas tienen que existir antes:
 
 ```bash
 python datawarehouse/ddl/run_sql.py datawarehouse/ddl/01_dw_schema.sql
+python datawarehouse/ddl/run_sql.py datawarehouse/ddl/02_staging_dw.sql
+python datawarehouse/ddl/run_sql.py datawarehouse/ddl/03_data_marts.sql
 ```
 
-**Deberías ver:** `Ejecutado datawarehouse/ddl/01_dw_schema.sql contra DW_URL`
+**Deberías ver** una línea `Ejecutado ... contra DW_URL` por cada uno.
 
 ### 3.4 Verificar que las 8 tablas están
 
@@ -571,145 +373,42 @@ for t in sorted(insp.get_table_names(schema='public')): print(' -', t)
 
 ## Parte 4 — Extender el repositorio de metadatos
 
-Esto vale el 15 % de la nota. El repositorio de la Entrega 1 describe las **fuentes**; ahora tiene que describir también el **almacén** y los **procesos** que lo alimentan.
+Esto vale el 15 % de la nota. El repositorio de la Entrega 1 describe las **fuentes**; ahora tiene que describir también el **almacén**, los **procesos** que lo alimentan y **cómo se usa**.
 
-> **Ojo:** estas tablas van en la base `railway` (el repositorio de metadatos), **no** en `dw`.
+> **Ojo:** estas tablas van en la base `metadata` (el repositorio de metadatos), **no** en `dw`.
 
-Creá `metadata_repository/ddl/metadata_dw_extension.sql`:
+### 4.1 Las cuatro categorías de la Clase 3
 
-```sql
--- ============================================================
--- Extension del Repositorio de Metadatos para gestionar el
--- almacen de datos - Entrega 2.
---
--- Se agregan 8 tablas a las 6 que ya existen de la Entrega 1.
--- Correr contra METADATA_REPO_URL (base 'railway').
--- ============================================================
+La Clase 3 define cuatro categorías de metadatos. La Entrega 1 cubrió dos; la Entrega 2 completa las otras dos:
 
--- ------------------------------------------------------------
--- METADATO ESTRUCTURAL DEL ALMACEN
--- ------------------------------------------------------------
+| Categoría | Qué responde | Tablas |
+|---|---|---|
+| **Negocio** | Qué significa cada dato | `business_entity`, `business_attribute`, `column_business_mapping` |
+| **Técnicos** | Dónde está y cómo es cada dato | `data_source`, `db_table`, `db_column`, `dw_object`, `dw_measure`, `dw_attribute` |
+| **Procesos** | Qué le hicieron los programas al dato | `etl_process`, `etl_execution`, `dw_lineage`, `dq_rule`, `dq_result` |
+| **Uso** | Quién lo consulta, con qué y cuánto | `usage_herramienta`, `usage_consulta`, `usage_consulta_objeto`, `usage_acceso_objeto` |
 
-CREATE TABLE IF NOT EXISTS dw_object (
-    dw_object_id    SERIAL PRIMARY KEY,
-    object_name     VARCHAR(100) NOT NULL UNIQUE,   -- 'fact_ventas', 'dim_cliente'
-    object_type     VARCHAR(20)  NOT NULL,          -- 'FACT' | 'DIMENSION' | 'VIEW'
-    grain           TEXT,                           -- solo aplica a hechos
-    description     TEXT NOT NULL,
-    is_conformed    BOOLEAN NOT NULL DEFAULT FALSE, -- solo aplica a dimensiones
-    row_count       INTEGER,
-    loaded_at       TIMESTAMP NOT NULL DEFAULT now()
-);
+### 4.2 Los archivos
 
-CREATE TABLE IF NOT EXISTS dw_measure (
-    dw_measure_id   SERIAL PRIMARY KEY,
-    dw_object_id    INTEGER NOT NULL REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
-    measure_name    VARCHAR(100) NOT NULL,
-    data_type       VARCHAR(50)  NOT NULL,
-    additivity      VARCHAR(20)  NOT NULL,   -- 'ADITIVA' | 'SEMI_ADITIVA' | 'NO_ADITIVA'
-    formula         TEXT,                    -- 'quantityOrdered * priceEach'
-    description     TEXT,
-    UNIQUE (dw_object_id, measure_name)
-);
+| Archivo | Qué agrega |
+|---|---|
+| [`metadata_repository/ddl/metadata_dw_extension.sql`](../../metadata_repository/ddl/metadata_dw_extension.sql) | 8 tablas: estructura del almacén, linaje, procesos y calidad |
+| [`metadata_repository/ddl/metadata_uso_extension.sql`](../../metadata_repository/ddl/metadata_uso_extension.sql) | 4 tablas de metadatos de uso |
+| [`metadata_repository/etl/dq_rules_seed.sql`](../../metadata_repository/etl/dq_rules_seed.sql) | El catálogo de reglas de calidad |
 
-CREATE TABLE IF NOT EXISTS dw_attribute (
-    dw_attribute_id SERIAL PRIMARY KEY,
-    dw_object_id    INTEGER NOT NULL REFERENCES dw_object(dw_object_id) ON DELETE CASCADE,
-    attribute_name  VARCHAR(100) NOT NULL,
-    data_type       VARCHAR(50)  NOT NULL,
-    attribute_role  VARCHAR(30)  NOT NULL,   -- 'SURROGATE_KEY' | 'BUSINESS_KEY' | 'DESCRIPTIVE' | 'FLAG'
-    description     TEXT,
-    UNIQUE (dw_object_id, attribute_name)
-);
+Al abrir `metadata_dw_extension.sql`, fijate en `dq_rule`: cada regla está clasificada tres veces — por **capa** del pipeline donde se evalúa, por **criterio DAMA** (Clase 1) y por **clase** técnica o de negocio (Clase 2, diapositiva 17). Son tres preguntas distintas y las tres se enseñaron.
 
--- ------------------------------------------------------------
--- LINAJE FUENTE -> ALMACEN
---
--- Conecta con db_column, que es la tabla de la Entrega 1 donde
--- estan catalogadas todas las columnas de las dos fuentes.
--- ------------------------------------------------------------
+### 4.3 Ejecutarlos
 
-CREATE TABLE IF NOT EXISTS dw_lineage (
-    dw_lineage_id       SERIAL PRIMARY KEY,
-    source_column_id    INTEGER REFERENCES db_column(column_id) ON DELETE SET NULL,
-    target_measure_id   INTEGER REFERENCES dw_measure(dw_measure_id)   ON DELETE CASCADE,
-    target_attribute_id INTEGER REFERENCES dw_attribute(dw_attribute_id) ON DELETE CASCADE,
-    transformation_rule TEXT NOT NULL,   -- 'copia directa', 'concatenacion', 'calculo'
-    -- Cada fila apunta a UNA medida o a UN atributo, nunca a los dos.
-    CHECK (
-        (target_measure_id IS NOT NULL AND target_attribute_id IS NULL) OR
-        (target_measure_id IS NULL AND target_attribute_id IS NOT NULL)
-    )
-);
-
--- ------------------------------------------------------------
--- METADATO OPERACIONAL DE LOS PROCESOS ETL
--- ------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS etl_process (
-    etl_process_id  SERIAL PRIMARY KEY,
-    process_name    VARCHAR(100) NOT NULL UNIQUE,
-    tool            VARCHAR(80)  NOT NULL,   -- 'Python 3.11 + SQLAlchemy + pandas'
-    source_systems  VARCHAR(200) NOT NULL,
-    target_system   VARCHAR(100) NOT NULL,
-    description     TEXT
-);
-
-CREATE TABLE IF NOT EXISTS etl_execution (
-    etl_execution_id SERIAL PRIMARY KEY,
-    etl_process_id   INTEGER NOT NULL REFERENCES etl_process(etl_process_id),
-    run_id           INTEGER NOT NULL,
-    started_at       TIMESTAMP NOT NULL,
-    finished_at      TIMESTAMP,
-    status           VARCHAR(20) NOT NULL,   -- 'EN_CURSO' | 'OK' | 'ERROR'
-    rows_read        INTEGER,
-    rows_written     INTEGER,
-    rows_rejected    INTEGER,
-    error_message    TEXT
-);
-
--- ------------------------------------------------------------
--- CALIDAD DE DATOS
--- Formaliza los hallazgos del perfilamiento de la Entrega 1.
--- ------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS dq_rule (
-    dq_rule_id      SERIAL PRIMARY KEY,
-    rule_name       VARCHAR(120) NOT NULL UNIQUE,
-    rule_type       VARCHAR(40)  NOT NULL,   -- 'COMPLETITUD' | 'UNICIDAD' | 'INTEGRIDAD' | 'RANGO'
-    source_column_id INTEGER REFERENCES db_column(column_id) ON DELETE SET NULL,
-    expression      TEXT NOT NULL,
-    severity        VARCHAR(20) NOT NULL,    -- 'BLOQUEANTE' | 'ADVERTENCIA' | 'INFORMATIVA'
-    resolution      TEXT NOT NULL            -- que hace el ETL cuando la regla falla
-);
-
-CREATE TABLE IF NOT EXISTS dq_result (
-    dq_result_id     SERIAL PRIMARY KEY,
-    dq_rule_id       INTEGER NOT NULL REFERENCES dq_rule(dq_rule_id) ON DELETE CASCADE,
-    etl_execution_id INTEGER NOT NULL REFERENCES etl_execution(etl_execution_id) ON DELETE CASCADE,
-    evaluated_at     TIMESTAMP NOT NULL DEFAULT now(),
-    rows_evaluated   INTEGER,
-    rows_failed      INTEGER,
-    passed           BOOLEAN NOT NULL
-);
-
--- ------------------------------------------------------------
--- Indices de apoyo
--- ------------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_dw_measure_object   ON dw_measure(dw_object_id);
-CREATE INDEX IF NOT EXISTS idx_dw_attribute_object ON dw_attribute(dw_object_id);
-CREATE INDEX IF NOT EXISTS idx_dw_lineage_source   ON dw_lineage(source_column_id);
-CREATE INDEX IF NOT EXISTS idx_etl_exec_process    ON etl_execution(etl_process_id);
-CREATE INDEX IF NOT EXISTS idx_dq_result_rule      ON dq_result(dq_rule_id);
-```
-
-Ejecutalo **contra el repositorio de metadatos**, no contra `dw`:
+El segundo parámetro de `run_sql.py` le dice que use el repositorio en vez del almacén:
 
 ```bash
 python datawarehouse/ddl/run_sql.py metadata_repository/ddl/metadata_dw_extension.sql METADATA_REPO_URL
+python datawarehouse/ddl/run_sql.py metadata_repository/ddl/metadata_uso_extension.sql METADATA_REPO_URL
+python datawarehouse/ddl/run_sql.py metadata_repository/etl/dq_rules_seed.sql METADATA_REPO_URL
 ```
 
-**Verificá que ahora hay 14 tablas:**
+**Verificá que ahora hay 18 tablas:**
 
 ```bash
 python -c "
@@ -717,493 +416,173 @@ import os;from dotenv import load_dotenv;import sqlalchemy as sa
 load_dotenv()
 insp = sa.inspect(sa.create_engine(os.getenv('METADATA_REPO_URL')))
 t = sorted(insp.get_table_names(schema='public'))
-print(f'{len(t)} tablas:'); [print(' -',x) for x in t]
+print(f'{len(t)} tablas'); [print(' -',x) for x in t]
 "
 ```
 
-**Deberías ver 14:** las 6 de la Entrega 1 más las 8 nuevas.
+**Deberías ver 18:** las 6 de la Entrega 1, las 8 de la extensión del almacén y las 4 de uso.
 
 ---
 
-## Parte 5 — ETL de dimensiones
+## Parte 5 — El ETL, capas 1 a 4: extraer, limpiar y separar
 
-Acordate: **primero todas las dimensiones, después los hechos.**
+Antes de correr nada, abrí la diapositiva 14 de la Clase 2. Es un diagrama de **siete columnas**, y el ETL de este proyecto las sigue una por una. Esta parte cubre las cuatro primeras; la siguiente, las tres últimas.
 
-Creá `datawarehouse/etl/etl_dw_dimensions.py`:
-
-```python
-"""
-ETL de dimensiones hacia el almacen de datos.
-
-Sigue el mismo patron de capas de la Entrega 1 (Giordano):
-Extract -> Data Quality -> Transform -> Load.
-
-Carga, en este orden:
-    dim_tiempo        (generada, no viene de ninguna fuente)
-    dim_estado_orden  (desde orders.status)
-    dim_oficina       (desde offices)
-    dim_cliente       (CONFORMADA: customers + cs_customers)
-    dim_producto      (CONFORMADA: products + productlines + cs_products)
-    dim_empleado      (NO conformada: employees + cs_employees, con sistema_origen)
-
-Uso:
-    python datawarehouse/etl/etl_dw_dimensions.py
-"""
-import os
-from datetime import date, timedelta
-
-import pandas as pd
-import sqlalchemy as sa
-from dotenv import load_dotenv
-
-load_dotenv()
-
-MYSQL = sa.create_engine(os.getenv("URL_MYSQLDATABASE"))
-PG    = sa.create_engine(os.getenv("DATABASE_URL"))
-DW    = sa.create_engine(os.getenv("DW_URL"))
-
-MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
-         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-DIAS  = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-
-
-def cargar(df, tabla):
-    """Escribe un DataFrame en una tabla del almacen, reemplazando lo anterior."""
-    with DW.begin() as con:
-        con.execute(sa.text(f"TRUNCATE TABLE {tabla} RESTART IDENTITY CASCADE"))
-    df.to_sql(tabla, DW, if_exists="append", index=False)
-    print(f"  {tabla}: {len(df)} filas")
-
-
-# ------------------------------------------------------------
-# dim_tiempo - se genera, no se extrae de ninguna fuente.
-# Cubre 2003-2005, que es el rango de ventas y llamadas.
-# ------------------------------------------------------------
-def dim_tiempo():
-    filas = []
-    d, fin = date(2003, 1, 1), date(2005, 12, 31)
-    while d <= fin:
-        filas.append({
-            "tiempo_key":    int(d.strftime("%Y%m%d")),
-            "fecha":         d,
-            "anio":          d.year,
-            "trimestre":     (d.month - 1) // 3 + 1,
-            "mes":           d.month,
-            "nombre_mes":    MESES[d.month - 1],
-            "dia":           d.day,
-            "dia_semana":    d.isoweekday(),
-            "nombre_dia":    DIAS[d.isoweekday() - 1],
-            "es_fin_semana": d.isoweekday() >= 6,
-            "anio_mes":      d.strftime("%Y-%m"),
-        })
-        d += timedelta(days=1)
-    cargar(pd.DataFrame(filas), "dim_tiempo")
-
-
-# ------------------------------------------------------------
-# dim_estado_orden - los 6 estados que existen en orders.status.
-# es_efectiva = False marca las ordenes que no deberian contarse
-# como venta cerrada. Resuelve el hallazgo de calidad #7.
-# ------------------------------------------------------------
-def dim_estado_orden():
-    df = pd.read_sql("SELECT DISTINCT status AS estado FROM orders", MYSQL)
-    no_efectivos = {"Cancelled", "Disputed", "On Hold"}
-    df["es_efectiva"] = ~df["estado"].isin(no_efectivos)
-    cargar(df, "dim_estado_orden")
-
-
-def dim_oficina():
-    df = pd.read_sql("""
-        SELECT officeCode AS codigo_oficina, city AS ciudad, country AS pais,
-               territory AS territorio, state AS region
-        FROM offices
-    """, MYSQL)
-    cargar(df, "dim_oficina")
-
-
-# ------------------------------------------------------------
-# dim_cliente - DIMENSION CONFORMADA.
-#
-# En la Entrega 1 se midio que customers y cs_customers solapan al
-# 100% por customerNumber. Se toma classicmodels como fuente
-# autoritativa (tiene mas atributos) y se marca con banderas en
-# cual de las dos fuentes aparece cada cliente.
-#
-# Resuelve el hallazgo de calidad #3: addressLine2 esta vacia en el
-# 81,97% de las filas, asi que se concatena con addressLine1 en un
-# solo atributo en vez de arrastrar una columna casi vacia.
-# ------------------------------------------------------------
-def dim_cliente():
-    cm = pd.read_sql("""
-        SELECT customerNumber   AS numero_cliente,
-               customerName     AS nombre_cliente,
-               contactFirstName AS contacto_nombre,
-               contactLastName  AS contacto_apellido,
-               phone            AS telefono,
-               addressLine1, addressLine2,
-               city             AS ciudad,
-               state            AS estado_region,
-               postalCode       AS codigo_postal,
-               country          AS pais,
-               creditLimit      AS limite_credito
-        FROM customers
-    """, MYSQL)
-
-    # Hallazgo #3: consolidar las dos lineas de direccion en una.
-    cm["direccion_completa"] = (
-        cm["addressLine1"].fillna("") +
-        cm["addressLine2"].fillna("").apply(lambda x: f", {x}" if x else "")
-    ).str.strip(", ")
-    cm = cm.drop(columns=["addressLine1", "addressLine2"])
-
-    cs = pd.read_sql("SELECT customernumber AS numero_cliente FROM cs_customers", PG)
-
-    cm["presente_en_ventas"]   = True
-    cm["presente_en_servicio"] = cm["numero_cliente"].isin(cs["numero_cliente"])
-
-    solape = int(cm["presente_en_servicio"].sum())
-    print(f"  [calidad] clientes en ambas fuentes: {solape} de {len(cm)}")
-
-    cargar(cm, "dim_cliente")
-
-
-# ------------------------------------------------------------
-# dim_producto - DIMENSION CONFORMADA.
-#
-# Resuelve el hallazgo de calidad #1: productlines.htmlDescription e
-# .image estan 100% vacias, asi que no se traen al almacen. Solo se
-# trae textDescription.
-# ------------------------------------------------------------
-def dim_producto():
-    cm = pd.read_sql("""
-        SELECT p.productCode    AS codigo_producto,
-               p.productName    AS nombre_producto,
-               p.productLine    AS linea_producto,
-               pl.textDescription AS descripcion_linea,
-               p.productScale   AS escala,
-               p.productVendor  AS proveedor,
-               p.buyPrice       AS precio_compra,
-               p.MSRP           AS precio_msrp
-        FROM products p
-        JOIN productlines pl ON p.productLine = pl.productLine
-    """, MYSQL)
-
-    cs = pd.read_sql("SELECT productcode AS codigo_producto FROM cs_products", PG)
-
-    cm["presente_en_ventas"]   = True
-    cm["presente_en_servicio"] = cm["codigo_producto"].isin(cs["codigo_producto"])
-
-    print(f"  [calidad] productos en ambas fuentes: "
-          f"{int(cm['presente_en_servicio'].sum())} de {len(cm)}")
-
-    cargar(cm, "dim_producto")
-
-
-# ------------------------------------------------------------
-# dim_empleado - DIMENSION NO CONFORMADA.
-#
-# Resuelve el hallazgo de calidad #2, el mas importante: los
-# empleados de las dos fuentes tienen solape 0%. No se pueden
-# fusionar. La solucion es una llave compuesta
-# (numero_empleado, sistema_origen) con llave subrogada encima,
-# de modo que las dos poblaciones convivan sin colisionar.
-# ------------------------------------------------------------
-def dim_empleado():
-    cm = pd.read_sql("""
-        SELECT employeeNumber AS numero_empleado,
-               firstName      AS nombre,
-               lastName       AS apellido,
-               email, jobTitle AS cargo,
-               officeCode     AS numero_oficina
-        FROM employees
-    """, MYSQL)
-    cm["sistema_origen"] = "classicmodels"
-
-    cs = pd.read_sql("""
-        SELECT employeenumber AS numero_empleado,
-               firstname      AS nombre,
-               lastname       AS apellido,
-               email
-        FROM cs_employees
-    """, PG)
-    cs["sistema_origen"] = "customerservice"
-    cs["cargo"] = "Agente de Servicio al Cliente"
-    cs["numero_oficina"] = None
-
-    solape = set(cm["numero_empleado"]) & set(cs["numero_empleado"])
-    print(f"  [calidad] empleados con llave compartida: {len(solape)} "
-          f"-> se usa llave compuesta con sistema_origen")
-
-    cargar(pd.concat([cm, cs], ignore_index=True), "dim_empleado")
-
-
-if __name__ == "__main__":
-    print("Cargando dimensiones...")
-    dim_tiempo()
-    dim_estado_orden()
-    dim_oficina()
-    dim_cliente()
-    dim_producto()
-    dim_empleado()
-    print("Dimensiones cargadas.")
+```
+ 1 Extract   2 Initial     3 Data       4 Clean      5 Transfor-   6 Load-Ready  7 Load
+   Publish     Staging       Quality      Staging      mation        Publish
+ ─────────   ──────────   ──────────   ──────────   ───────────   ───────────   ───────
+ un modelo   una pila     Tech DQ      pila gris    conformar     forma final   dimen-
+ por fuente  por fuente   Bus DQ       (limpios)    por área      lista para    siones
+                          Error        pila roja    temática      cargar        hechos
+                          Handling     (rechaz.)
 ```
 
-Corré:
+### 5.1 Por qué esta mitad va separada
+
+Las capas 1 a 4 las comparten **las dos cargas**, la de dimensiones y la de hechos. Por eso viven en un proceso propio, [`datawarehouse/etl/etl_dw_staging.py`](../../datawarehouse/etl/etl_dw_staging.py), que corre una sola vez. Es el principio **«read once, write many»** de la diapositiva 15: las fuentes se leen una sola vez por carga, y todo lo demás trabaja sobre la copia.
+
+### 5.2 Qué hace cada capa
+
+| Capa | Dónde queda | Qué hace |
+|---|---|---|
+| **1 Extract/Publish** | En el código: `MODELOS_EXTRACCION` | Un modelo de extracción por fuente. Trae **las 13 tablas**, incluso las que el modelo no usa hoy: la diapositiva 15 dice «traer todo pensando en necesidades futuras» |
+| **2 Initial Staging** | `stg_initial_classicmodels`, `stg_initial_customerservice` | Una tabla **por fuente**, como las pilas de colores del diagrama. Guarda la fila tal cual y después **perfila** lo que aterrizó (diapositiva 16) |
+| **3 Data Quality** | `stg_error_log` | Once reglas por registro, técnicas y de negocio. Lo que falla queda en el reporte de transacciones malas |
+| **4 Clean Staging** | `stg_clean`, `stg_rejected` | Separa **físicamente** limpios de rechazados. La transformación solo puede leer los limpios |
+
+Un detalle que vale la pena notar: las columnas obligatorias que revisa la calidad técnica **no están escritas en el ETL**. Se leen del repositorio de metadatos (`db_column.is_nullable`), que es el metadato técnico de la Entrega 1. El metadato gobierna el proceso, que es lo que la Clase 3 dice que debe hacer.
+
+### 5.3 Correrlo
+
+```bash
+python datawarehouse/etl/etl_dw_staging.py
+```
+
+**Deberías ver** (resumido):
+
+```
+[Capa 2] Initial Staging            (dia. 16: una tabla por fuente)
+    Modelo de extraccion: classicmodels  ->  staging_dw.stg_initial_classicmodels
+      customers                122 filas
+      ...
+    TOTAL en Initial Staging      4335 filas
+    Perfilamiento de Initial Staging  (dia. 16)
+      85 columnas perfiladas, 14 con nulos
+
+[Capa 3] Data Quality               (dia. 17: tecnica y de negocio)
+    Regla                                 Clase    Accion       Revisadas  Fallas
+    campos_obligatorios                   TECNICA  RECHAZADO         4335       0
+    integridad_referencial                NEGOCIO  RECHAZADO         4059       0
+    cliente_con_vendedor                  NEGOCIO  ADVERTENCIA        122      22
+    ...
+    Error Handling -> 22 entradas en el reporte de transacciones malas
+
+[Capa 4] Clean Staging              (dia. 18: separar limpios y rechazados)
+    TOTAL                  limpios  4335   rechazados   0
+```
+
+### 5.4 Cómo leer ese resultado
+
+**Cero rechazados es la verdad sobre estos datos, no un error.** Los dumps de `classicmodels` y `customerservice` no tienen violaciones de integridad referencial, ni valores negativos, ni fechas incoherentes. Lo que sí tienen son **22 clientes sin vendedor asignado**: la fuente admite el nulo (técnicamente válido), pero el negocio espera que todo cliente tenga vendedor. Es exactamente la diferencia entre calidad técnica y de negocio de la diapositiva 17, y por eso es una advertencia y no un rechazo.
+
+Para ver el reporte de transacciones malas:
+
+```sql
+SELECT * FROM staging_dw.vw_reporte_transacciones_malas;
+```
+
+### 5.5 ¿Y si llega un dato malo?
+
+Como los datos reales son limpios, el camino de rechazo no se ejercita en una carga normal. Para probarlo hay un script que arma un lote **sintético** con un defecto por cada tipo de regla, sin tocar el almacén:
+
+```bash
+python datawarehouse/queries/probar_calidad.py
+```
+
+**Deberías ver** once filas en `OK`: los 7 defectos bloqueantes terminan en `rechazado`, las 4 advertencias pasan como `limpio`, y ningún registro sano se marca por error.
+
+> Si el profesor pregunta qué pasa con un dato malo, esta es la respuesta con evidencia: la prueba muestra cada regla atrapando su defecto y mandando el registro adonde corresponde.
+
+### 5.6 Los tres destinos de la diapositiva 18
+
+La diapositiva 18 dice «separar: datos limpios, por revisar y rechazados». Aquí hay **dos** pilas, y es una decisión, no un olvido. «Por revisar» supone un custodio de datos que valide los casos dudosos antes de cada carga; este almacén se reconstruye desatendido desde snapshots estáticos, así que un estado que nadie revisa sería una capa muerta. Los casos dudosos pasan como limpios y quedan trazados como `ADVERTENCIA`.
+
+---
+
+## Parte 6 — El ETL, capas 5 a 7: conformar y cargar
+
+### 6.1 La bifurcación final del diagrama
+
+En la columna *Load* el diagrama se divide en dos modelos de carga: *Involved Party* y *Event*. En este almacén esa bifurcación son **dimensiones** y **hechos**, y cada rama es un proceso:
+
+| Rama | Archivo | Carga |
+|---|---|---|
+| Dimensiones | [`etl_dw_dimensions.py`](../../datawarehouse/etl/etl_dw_dimensions.py) | Las 6 dimensiones |
+| Hechos | [`etl_dw_facts.py`](../../datawarehouse/etl/etl_dw_facts.py) | Los 2 hechos |
+
+Ninguno de los dos se conecta a MySQL ni a PostgreSQL de las fuentes: leen la pila de limpios de Clean Staging.
+
+### 6.2 Conformar por área temática
+
+La caja de *Transformation* del diagrama dice «Conform Loan Data» y «Conform Deposit Data»: conformar por **tema**, no por fuente. Aquí las áreas son:
+
+| Área | Destino | Operación |
+|---|---|---|
+| Tiempo | `dim_tiempo` | Generación (no viene de ninguna fuente) |
+| Organización | `dim_oficina` | Proyección |
+| Ventas | `dim_estado_orden` | Agregación de valores distintos |
+| Cliente | `dim_cliente` | Join entre las dos fuentes + consolidación de dirección |
+| Producto | `dim_producto` | Join con `productlines` + join entre fuentes |
+| Empleado | `dim_empleado` | Unión de fuentes con llave compuesta |
+| Ventas | `fact_ventas` | Join de 5 tablas, lookup de 5 dimensiones, medidas calculadas |
+| Servicio | `fact_llamadas_servicio` | Lookup de 3 dimensiones, medidas calculadas |
+
+`fact_ventas` es donde aparecen juntas las tres operaciones de la diapositiva 19: **joins**, **lookups** (llave de negocio → llave subrogada) y **agregaciones**.
+
+### 6.3 Correrlo — el orden importa
 
 ```bash
 python datawarehouse/etl/etl_dw_dimensions.py
-```
-
-**Deberías ver algo como:**
-
-```
-Cargando dimensiones...
-  dim_tiempo: 1096 filas
-  dim_estado_orden: 6 filas
-  dim_oficina: 7 filas
-  [calidad] clientes en ambas fuentes: 122 de 122
-  dim_cliente: 122 filas
-  [calidad] productos en ambas fuentes: 110 de 110
-  dim_producto: 110 filas
-  [calidad] empleados con llave compartida: 0 -> se usa llave compuesta con sistema_origen
-  dim_empleado: 53 filas
-Dimensiones cargadas.
-```
-
-> Esas tres líneas `[calidad]` son **oro para el documento**: son la evidencia numérica de que resolviste los problemas de la Entrega 1. Tomales pantallazo.
-
----
-
-## Parte 6 — ETL de hechos
-
-Ahora sí los hechos. La parte nueva acá es la **búsqueda de llaves subrogadas** (*surrogate key lookup*): el hecho no guarda `customerNumber = 103`, guarda `cliente_key = 7`, que es la llave que le tocó a ese cliente en `dim_cliente`. Hay que traducir.
-
-Creá `datawarehouse/etl/etl_dw_facts.py`:
-
-```python
-"""
-ETL de hechos hacia el almacen de datos.
-
-Requiere que las dimensiones ya esten cargadas
-(python datawarehouse/etl/etl_dw_dimensions.py).
-
-Carga:
-    fact_ventas             desde classicmodels (orderdetails + orders + products)
-    fact_llamadas_servicio  desde customerservice (cs_customer_calls)
-
-Y crea la vista integrada vw_interaccion_cliente_producto.
-
-Uso:
-    python datawarehouse/etl/etl_dw_facts.py
-"""
-import os
-
-import pandas as pd
-import sqlalchemy as sa
-from dotenv import load_dotenv
-
-load_dotenv()
-
-MYSQL = sa.create_engine(os.getenv("URL_MYSQLDATABASE"))
-PG    = sa.create_engine(os.getenv("DATABASE_URL"))
-DW    = sa.create_engine(os.getenv("DW_URL"))
-
-
-def mapa(tabla, llave_negocio, llave_subrogada, extra=None):
-    """Devuelve un diccionario {llave_de_negocio: llave_subrogada}.
-
-    Es la traduccion que necesita el hecho: en la fuente el cliente es
-    el numero 103, pero en el almacen es la fila cliente_key = 7.
-    """
-    cols = f"{llave_negocio}, {llave_subrogada}"
-    if extra:
-        cols += f", {extra}"
-    df = pd.read_sql(f"SELECT {cols} FROM {tabla}", DW)
-    if extra:
-        return {(r[llave_negocio], r[extra]): r[llave_subrogada] for _, r in df.iterrows()}
-    return dict(zip(df[llave_negocio], df[llave_subrogada]))
-
-
-def cargar(df, tabla):
-    with DW.begin() as con:
-        con.execute(sa.text(f"TRUNCATE TABLE {tabla} RESTART IDENTITY CASCADE"))
-    df.to_sql(tabla, DW, if_exists="append", index=False)
-    print(f"  {tabla}: {len(df)} filas")
-
-
-# ------------------------------------------------------------
-# fact_ventas - grano: una linea de una orden.
-# ------------------------------------------------------------
-def fact_ventas():
-    df = pd.read_sql("""
-        SELECT od.orderNumber      AS numero_orden,
-               od.orderLineNumber  AS numero_linea,
-               o.orderDate, o.shippedDate, o.status,
-               o.customerNumber,
-               od.productCode,
-               od.quantityOrdered  AS cantidad_ordenada,
-               od.priceEach        AS precio_unitario,
-               p.buyPrice, p.MSRP  AS precio_msrp,
-               c.salesRepEmployeeNumber,
-               e.officeCode
-        FROM orderdetails od
-        JOIN orders    o ON od.orderNumber    = o.orderNumber
-        JOIN products  p ON od.productCode    = p.productCode
-        JOIN customers c ON o.customerNumber  = c.customerNumber
-        LEFT JOIN employees e ON c.salesRepEmployeeNumber = e.employeeNumber
-    """, MYSQL)
-
-    # --- Medidas calculadas ---
-    df["monto_linea"] = (df["cantidad_ordenada"] * df["precio_unitario"]).round(2)
-    df["costo_linea"] = (df["cantidad_ordenada"] * df["buyPrice"]).round(2)
-    df["margen_linea"] = (df["monto_linea"] - df["costo_linea"]).round(2)
-
-    # Hallazgo de calidad #5: shippedDate es nula en las 14 ordenes que
-    # no se despacharon. Se deja NULL en vez de inventar un valor.
-    df["dias_hasta_envio"] = (
-        pd.to_datetime(df["shippedDate"]) - pd.to_datetime(df["orderDate"])
-    ).dt.days
-
-    # --- Traduccion a llaves subrogadas ---
-    k_cli = mapa("dim_cliente",      "numero_cliente",  "cliente_key")
-    k_pro = mapa("dim_producto",     "codigo_producto", "producto_key")
-    k_ofi = mapa("dim_oficina",      "codigo_oficina",  "oficina_key")
-    k_est = mapa("dim_estado_orden", "estado",          "estado_key")
-    k_emp = mapa("dim_empleado",     "numero_empleado", "empleado_key", extra="sistema_origen")
-
-    df["tiempo_key"]   = pd.to_datetime(df["orderDate"]).dt.strftime("%Y%m%d").astype(int)
-    df["cliente_key"]  = df["customerNumber"].map(k_cli)
-    df["producto_key"] = df["productCode"].map(k_pro)
-    df["oficina_key"]  = df["officeCode"].map(k_ofi)
-    df["estado_key"]   = df["status"].map(k_est)
-    df["empleado_key"] = df["salesRepEmployeeNumber"].map(
-        lambda n: k_emp.get((n, "classicmodels")) if pd.notna(n) else None
-    )
-
-    salida = df[[
-        "tiempo_key", "cliente_key", "producto_key", "empleado_key",
-        "oficina_key", "estado_key", "numero_orden", "numero_linea",
-        "cantidad_ordenada", "precio_unitario", "monto_linea",
-        "costo_linea", "margen_linea", "precio_msrp", "dias_hasta_envio",
-    ]].copy()
-
-    # Las llaves subrogadas deben ser enteros que admitan nulos.
-    for c in ["empleado_key", "oficina_key", "dias_hasta_envio"]:
-        salida[c] = salida[c].astype("Int64")
-
-    cargar(salida, "fact_ventas")
-
-
-# ------------------------------------------------------------
-# fact_llamadas_servicio - grano: una llamada.
-# ------------------------------------------------------------
-def fact_llamadas():
-    df = pd.read_sql("""
-        SELECT employeenumber, customernumber, productcode, text, date
-        FROM cs_customer_calls
-    """, PG)
-
-    k_cli = mapa("dim_cliente",  "numero_cliente",  "cliente_key")
-    k_pro = mapa("dim_producto", "codigo_producto", "producto_key")
-    k_emp = mapa("dim_empleado", "numero_empleado", "empleado_key", extra="sistema_origen")
-
-    df["tiempo_key"]        = pd.to_datetime(df["date"]).dt.strftime("%Y%m%d").astype(int)
-    df["cliente_key"]       = df["customernumber"].map(k_cli)
-    df["producto_key"]      = df["productcode"].map(k_pro)
-    df["empleado_key"]      = df["employeenumber"].map(
-        lambda n: k_emp.get((n, "customerservice"))
-    )
-    df["texto_llamada"]     = df["text"]
-    df["cantidad_llamadas"] = 1
-    df["longitud_texto"]    = df["text"].fillna("").str.len()
-
-    salida = df[[
-        "tiempo_key", "cliente_key", "producto_key", "empleado_key",
-        "texto_llamada", "cantidad_llamadas", "longitud_texto",
-    ]]
-    cargar(salida, "fact_llamadas_servicio")
-
-
-# ------------------------------------------------------------
-# La vista que cruza los dos hechos.
-# Este es el entregable que justifica haber integrado las fuentes.
-# ------------------------------------------------------------
-def vista_integrada():
-    sql = """
-    DROP VIEW IF EXISTS vw_interaccion_cliente_producto;
-    CREATE VIEW vw_interaccion_cliente_producto AS
-    WITH ventas AS (
-        SELECT f.cliente_key, f.producto_key, t.anio_mes,
-               SUM(f.cantidad_ordenada) AS unidades_vendidas,
-               SUM(f.monto_linea)       AS monto_vendido,
-               SUM(f.margen_linea)      AS margen_total,
-               COUNT(*)                 AS lineas_orden
-        FROM fact_ventas f
-        JOIN dim_tiempo t ON f.tiempo_key = t.tiempo_key
-        GROUP BY 1, 2, 3
-    ),
-    llamadas AS (
-        SELECT l.cliente_key, l.producto_key, t.anio_mes,
-               SUM(l.cantidad_llamadas) AS num_llamadas
-        FROM fact_llamadas_servicio l
-        JOIN dim_tiempo t ON l.tiempo_key = t.tiempo_key
-        GROUP BY 1, 2, 3
-    )
-    SELECT
-        COALESCE(v.anio_mes,     ll.anio_mes)     AS anio_mes,
-        c.numero_cliente,
-        c.nombre_cliente,
-        p.codigo_producto,
-        p.nombre_producto,
-        p.linea_producto,
-        COALESCE(v.unidades_vendidas, 0) AS unidades_vendidas,
-        COALESCE(v.monto_vendido,   0)   AS monto_vendido,
-        COALESCE(v.margen_total,    0)   AS margen_total,
-        COALESCE(v.lineas_orden,    0)   AS lineas_orden,
-        COALESCE(ll.num_llamadas,   0)   AS num_llamadas,
-        CASE WHEN COALESCE(v.unidades_vendidas, 0) > 0
-             THEN ROUND(COALESCE(ll.num_llamadas, 0)::numeric
-                        / v.unidades_vendidas, 4)
-        END AS llamadas_por_unidad
-    FROM ventas v
-    FULL OUTER JOIN llamadas ll
-         ON v.cliente_key  = ll.cliente_key
-        AND v.producto_key = ll.producto_key
-        AND v.anio_mes     = ll.anio_mes
-    JOIN dim_cliente  c ON c.cliente_key  = COALESCE(v.cliente_key,  ll.cliente_key)
-    JOIN dim_producto p ON p.producto_key = COALESCE(v.producto_key, ll.producto_key);
-    """
-    with DW.begin() as con:
-        con.execute(sa.text(sql))
-    n = pd.read_sql("SELECT COUNT(*) AS n FROM vw_interaccion_cliente_producto", DW)
-    print(f"  vw_interaccion_cliente_producto: {int(n['n'][0])} filas")
-
-
-if __name__ == "__main__":
-    print("Cargando hechos...")
-    fact_ventas()
-    fact_llamadas()
-    vista_integrada()
-    print("Hechos cargados.")
-```
-
-Corré:
-
-```bash
 python datawarehouse/etl/etl_dw_facts.py
 ```
 
-**Deberías ver:**
+Primero dimensiones, después hechos: los hechos guardan la llave subrogada de cada dimensión, así que la dimensión tiene que existir antes.
+
+**Deberías ver**, en la rama de dimensiones:
 
 ```
-Cargando hechos...
-  fact_ventas: 2996 filas
-  fact_llamadas_servicio: 108 filas
-  vw_interaccion_cliente_producto: ~2700 filas
-Cargando hechos... listo
+ETL de dimensiones - run_id=2, lee Clean Staging del run 1
+Las fuentes NO se leen aqui (dia. 15: read once, write many)
+[Capa 5] Transformation             (dia. 19: conformar por area)
+    Tiempo       dim_tiempo          1096  generacion
+    ...
+    Empleado     dim_empleado          53  union de fuentes, llave compuesta
+[Capa 7] Load
+    ...
+Dimensiones cargadas: 1394 filas.
 ```
 
-**Si te da un error de llave foránea (`violates foreign key constraint`):** significa que alguna dimensión no está cargada. Volvé a correr la Parte 5 completa.
+y en la de hechos:
+
+```
+ETL de hechos - run_id=3, lee Clean Staging del run 1
+    Ventas    fact_ventas               2996  join (5 tablas), lookup (5 dimensiones), calculo de medidas
+    Servicio  fact_llamadas_servicio     108  lookup (3 dimensiones), calculo de medidas
+Hechos cargados: 3104 filas.
+```
+
+La línea **«lee Clean Staging del run 1»** en las dos ramas es la evidencia del «read once»: ambas consumen la misma extracción.
+
+### 6.4 Ver el recorrido completo
+
+```sql
+SELECT * FROM staging_dw.vw_trazabilidad_capas;
+```
+
+Muestra, por cada corrida, cuántas filas pasaron por cada capa. Y `datawarehouse/ddl/generar_diagramas.py` dibuja el pipeline completo con esos mismos conteos en `docs/Entrega_2/img/pipeline_capas.png`.
+
+**Si te da un error de llave foránea (`violates foreign key constraint`):** corriste hechos sin dimensiones. Corré primero `etl_dw_dimensions.py`.
 
 ---
 
@@ -1277,7 +656,7 @@ SELECT nombre_producto,
        SUM(num_llamadas)      AS llamadas,
        ROUND(SUM(num_llamadas)::numeric / NULLIF(SUM(unidades_vendidas),0), 4)
            AS llamadas_por_unidad
-FROM vw_interaccion_cliente_producto
+FROM dm.vw_interaccion_cliente_producto
 GROUP BY nombre_producto, linea_producto
 HAVING SUM(unidades_vendidas) > 0
 ORDER BY llamadas_por_unidad DESC
@@ -1389,8 +768,8 @@ python datawarehouse/backup/generar_backup.py metadata
 **Deberías ver:**
 
 ```
-datawarehouse/backup/dw_backup.sql  (540 KB, 8 tablas)
-metadata_repository/backup/metadata_repo_backup.sql  (38 KB, 14 tablas)
+datawarehouse/backup/dw_backup.sql  (546 KB, 8 tablas)
+metadata_repository/backup/metadata_repo_backup.sql  (50 KB, 18 tablas)
 ```
 
 ### 9.1 Probar que el backup de verdad restaura

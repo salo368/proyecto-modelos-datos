@@ -109,7 +109,7 @@ ORDER BY t.anio_mes
 SELECT nombre_producto                  AS producto,
        ROUND(SUM(num_llamadas)::numeric
              / NULLIF(SUM(unidades_vendidas), 0), 4) AS llamadas_por_unidad
-FROM vw_interaccion_cliente_producto
+FROM dm.vw_interaccion_cliente_producto
 GROUP BY nombre_producto
 HAVING SUM(unidades_vendidas) > 0
    AND SUM(num_llamadas)      > 0
@@ -144,7 +144,7 @@ ORDER BY monto_vendido DESC
 SELECT nombre_cliente                   AS cliente,
        ROUND(SUM(monto_vendido), 2)     AS monto_comprado,
        SUM(num_llamadas)                AS llamadas
-FROM vw_interaccion_cliente_producto
+FROM dm.vw_interaccion_cliente_producto
 GROUP BY nombre_cliente
 HAVING SUM(monto_vendido) > 0
 ORDER BY monto_comprado DESC
@@ -319,26 +319,30 @@ def main():
     db_id = mb.registrar_almacen()
     mb.esperar_sincronizacion(db_id)
 
-    print("Creando los reportes...")
+    print("Creando o actualizando los reportes...")
     existentes = {c["name"]: c["id"] for c in mb.get("/card")}
     tarjetas = []
     for r in REPORTES:
+        definicion = {
+            "name": r["name"],
+            "description": r["description"],
+            "display": r["display"],
+            "dataset_query": {
+                "type": "native",
+                "native": {"query": r["sql"].strip()},
+                "database": db_id,
+            },
+            "visualization_settings": r["viz"],
+        }
+        # Si la pregunta ya existe se actualiza su consulta: asi un cambio en
+        # el modelo (por ejemplo mover una vista a otro schema) llega al
+        # dashboard sin tener que borrar la instancia de Metabase.
         if r["name"] in existentes:
             card_id = existentes[r["name"]]
-            print(f"  (ya existia) {r['name']}")
+            mb.put(f"/card/{card_id}", definicion)
+            print(f"  actualizado: {r['name']}")
         else:
-            card = mb.post("/card", {
-                "name": r["name"],
-                "description": r["description"],
-                "display": r["display"],
-                "dataset_query": {
-                    "type": "native",
-                    "native": {"query": r["sql"].strip()},
-                    "database": db_id,
-                },
-                "visualization_settings": r["viz"],
-            })
-            card_id = card["id"]
+            card_id = mb.post("/card", definicion)["id"]
             print(f"  creado: {r['name']}")
         tarjetas.append(card_id)
 

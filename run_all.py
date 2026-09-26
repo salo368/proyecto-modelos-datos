@@ -67,10 +67,16 @@ PIPELINE = [
     ("Entrega 2 - Capas de staging del ETL (Giordano, Clase 2)",
      [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/02_staging_dw.sql"]),
 
-    ("Entrega 2 - ETL de dimensiones",
+    ("Entrega 2 - Data marts (EDW -> DM, Clase 4-5)",
+     [PY, "datawarehouse/ddl/run_sql.py", "datawarehouse/ddl/03_data_marts.sql"]),
+
+    ("Entrega 2 - ETL capas 1-4: extraer, limpiar y separar",
+     [PY, "datawarehouse/etl/etl_dw_staging.py"]),
+
+    ("Entrega 2 - ETL capas 5-7: dimensiones",
      [PY, "datawarehouse/etl/etl_dw_dimensions.py"]),
 
-    ("Entrega 2 - ETL de hechos y vista integrada",
+    ("Entrega 2 - ETL capas 5-7: hechos",
      [PY, "datawarehouse/etl/etl_dw_facts.py"]),
 
     ("Entrega 2 - Catalogo del almacen en el repositorio",
@@ -81,6 +87,9 @@ PIPELINE = [
 
     ("Validacion contra las fuentes",
      [PY, "datawarehouse/queries/validacion.py"]),
+
+    ("Prueba del camino de rechazo (datos sinteticos)",
+     [PY, "datawarehouse/queries/probar_calidad.py"]),
 
     ("Reportes en Metabase",
      [PY, "reports/construir_dashboard.py"]),

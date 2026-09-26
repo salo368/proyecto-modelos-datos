@@ -39,7 +39,7 @@ HERRAMIENTAS = [
     ("Metabase", "BI",
      "Construye y sirve los seis reportes de la Entrega 2. Es el unico "
      "consumidor de cara al usuario final.", "LECTURA"),
-    ("ETL Python (dimensiones y hechos)", "ETL",
+    ("ETL Python (staging, dimensiones y hechos)", "ETL",
      "Carga el almacen desde las capas de staging. Unico proceso con "
      "permiso de escritura sobre las tablas del modelo dimensional.", "ESCRITURA"),
     ("Scripts de validacion y backup", "CLIENTE_SQL",
@@ -87,7 +87,7 @@ CONSULTAS = [
      ["fact_ventas", "fact_llamadas_servicio", "dim_cliente", "dim_producto",
       "dim_oficina", "dim_empleado"]),
 
-    ("Carga de dimensiones y hechos", "ETL Python (dimensiones y hechos)",
+    ("Carga de dimensiones y hechos", "ETL Python (staging, dimensiones y hechos)",
      "Escritura de las ocho tablas del modelo dimensional desde staging.",
      "BAJO_DEMANDA", 0,
      ["dim_tiempo", "dim_cliente", "dim_producto", "dim_empleado",

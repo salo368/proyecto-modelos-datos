@@ -69,6 +69,15 @@ def main():
         todo_ok &= ok
         print(f"{'monto total vendido':<26}{m1:>12}{m2:>12}   {'OK' if ok else 'DIFIERE'}")
 
+        # Los data marts son vistas: si el backup no las recrea, la capa
+        # DM desaparece aunque las tablas esten completas.
+        for vista in ["dm.vw_interaccion_cliente_producto", "dm.vw_ventas_mensuales_linea"]:
+            n1 = a.execute(sa.text(f"SELECT COUNT(*) FROM {vista}")).scalar()
+            n2 = b.execute(sa.text(f"SELECT COUNT(*) FROM {vista}")).scalar()
+            ok = n1 == n2
+            todo_ok &= ok
+            print(f"{vista.split('.')[1]:<26}{n1:>12}{n2:>12}   {'OK' if ok else 'DIFIERE'}")
+
     prueba.dispose()
     with admin.connect() as c:
         c.execute(sa.text(f"DROP DATABASE {BASE_PRUEBA}"))

@@ -1,138 +1,162 @@
 # Las capas de la solución
 
-Referencia rápida para explicar la arquitectura. Hay **dos sentidos distintos** de la palabra «capa» en este proyecto y conviene no mezclarlos, porque responden a preguntas diferentes.
+Referencia rápida para la sustentación. La arquitectura sigue **dos marcos** que se vieron en clase, y conviene no mezclarlos porque responden preguntas distintas:
 
----
-
-## 1. Capas del ETL — la ruta que recorre un dato
-
-Son las etapas por las que pasa un dato desde la fuente hasta el almacén. Siguen la arquitectura de referencia para integración de datos de **Anthony Giordano** (*Data Integration Blueprint and Modeling*, 2011, Cap. 2), presentada en la **Clase 2** del curso.
-
-Lo que distingue esta implementación: **cada capa es una tabla física persistida**, no un paso en memoria. Se puede consultar el estado exacto del dato en cualquier punto del proceso.
-
-| # | Capa | Tabla | Diapositiva | Qué ocurre |
-|---|---|---|---|---|
-| 1 | **Extract / Landing** | `staging_dw.stg_extract` | 15, 16 | Copia cruda, 1:1, sin interpretar. Las 11 tablas fuente, leídas una sola vez |
-| 2 | **Data Quality** | `staging_dw.stg_dq` | 17, 18 | Evalúa calidad técnica y de negocio. Marca `OK` o `RECHAZADO` |
-| 3 | **Transform** | `staging_dw.stg_transform` | 19 | Joins, lookups de llaves subrogadas, agregaciones |
-| 4 | **Load-Ready Publish** | `staging_dw.stg_loadready` | — | Forma definitiva. Entre esto y el destino no queda nada por transformar |
-| 5 | **Load** | `dim_*`, `fact_*` | — | Escritura al modelo dimensional |
-
-**En una frase:** el dato entra crudo, se valida, se transforma, se deja listo y se publica — y en cada paso queda una copia consultable.
-
-### Qué hace exactamente cada capa
-
-**Extract / Landing.** Lee las once tablas de las dos fuentes y las deposita tal como vinieron, sin decidir nada todavía. El payload va en `JSONB` para que una sola tabla sirva a orígenes con esquemas distintos: el landing debe aceptar el dato como es, no imponerle una forma.
-
-**Data Quality.** La diapositiva 17 separa la calidad en dos clases, y la columna `clase_dq` las distingue:
-
-- **Técnica** — datos faltantes o inválidos, detectables sin conocer el negocio. Por ejemplo, una llave primaria nula.
-- **Negocio** — definiciones inconsistentes o datos inexactos, que exigen conocer la semántica. Por ejemplo, un cliente que existe en ventas pero no en servicio.
-
-**Transform.** Las tres operaciones que nombra la diapositiva 19:
-
-- *Joins* — `fact_ventas` cruza cinco tablas del landing.
-- *Lookups* — la traducción de llave de negocio a llave subrogada: `customerNumber 103` se convierte en `cliente_key 7`. Es la operación característica de un ETL dimensional.
-- *Agregaciones* — medidas calculadas como `monto_linea` y `margen_linea`.
-
-**Load-Ready Publish.** La fila en su forma final. Separarla de Transform permite revisar qué se va a escribir antes de tocar el almacén.
-
-**Load.** Inserción directa en las tablas del modelo dimensional.
-
----
-
-## 2. Capas de la arquitectura física — dónde vive cada cosa
-
-Son los entornos donde corre la solución, no las etapas del dato.
-
-| Capa | Contenedor | Rol |
+| Marco | Clase | Pregunta que responde |
 |---|---|---|
-| **Fuentes** | `mpd-mysql`, `mpd-postgres-cs` | Sistemas de registro. No se modifican |
-| **Almacén** | `mpd-postgres-dw`, base `dw` | Staging + modelo dimensional |
-| **Repositorio de metadatos** | `mpd-postgres-dw`, base `metadata` | Cataloga todo lo anterior |
-| **Presentación** | `mpd-metabase` | Reportes. Solo lee del almacén |
+| Arquitectura de integración de Giordano | Clase 2, diapositivas 14–19 | ¿Por qué etapas pasa un dato desde la fuente hasta el almacén? |
+| Flujo dentro del DW: ODS → EDW → DM | Clase 4-5, diapositivas 11–12 | ¿Cómo se organiza el almacén una vez cargado? |
+
+![Pipeline con los conteos reales](img/pipeline_capas.png)
+
+*El diagrama se genera desde la base, con los conteos reales de la última carga (`datawarehouse/ddl/generar_diagramas.py`). No puede contradecir lo que el pipeline hizo.*
 
 ---
 
-## 3. Cómo se relacionan los dos sentidos
+## 1. Las siete capas de Giordano
 
-Las capas del ETL **viven dentro de** la capa de almacén. El schema `staging_dw` y las tablas `dim_*`/`fact_*` están en la misma base `dw`, pero cumplen roles distintos: **staging es el proceso, el modelo dimensional es el producto**.
+El diagrama de la diapositiva 14 tiene **siete columnas**, y cada diapositiva siguiente (15 a 19) tiene una flecha que señala cuál está explicando. La implementación sigue las siete, cada una como tabla física en el schema `staging_dw`:
+
+| # | Capa | Implementación | Dia. | Qué dibuja el diagrama | Filas en la última carga |
+|---|---|---|---|---|---|
+| 1 | **Extract/Publish** | `MODELOS_EXTRACCION` en `etl_dw_staging.py` | 15 | Un modelo lógico de extracción por fuente | 13 tablas leídas una vez |
+| 2 | **Initial Staging** | `stg_initial_classicmodels` · `stg_initial_customerservice` · `stg_perfil` | 16 | Una pila **por fuente**, de colores distintos | 3.864 + 471 = 4.335 · 85 columnas perfiladas |
+| 3 | **Data Quality** | `stg_error_log` | 17 | *Tech DQ Checks*, *Bus DQ Check*, *Error Handling* → reporte de *Bad Transactions* | 22 entradas (todas advertencias) |
+| 4 | **Clean Staging** | `stg_clean` · `stg_rejected` | **18** | Dos pilas: **gris** (limpios) y **roja** (rechazados) | 4.335 limpias · 0 rechazadas |
+| 5 | **Transformation** | `stg_transform` | 19 | *Conform Loan Data*, *Conform Deposit Data*: conformar **por área temática** | 1.394 (dimensiones) + 3.104 (hechos) |
+| 6 | **Load-Ready Publish** | `stg_loadready` | — | Una pila lista para cargar | 1.394 + 3.104 |
+| 7 | **Load** | `dim_*` · `fact_*` | — | Se bifurca en *Involved Party* y *Event* | 6 dimensiones · 2 hechos |
+
+**En una frase:** las fuentes se leen una vez y aterrizan cada una en su pila, se perfilan, pasan por calidad técnica y de negocio, se separan en limpios y rechazados, se conforman por tema, y se cargan en dos ramas — dimensiones y hechos.
+
+### Qué ocurre en cada capa
+
+**1 · Extract/Publish.** Un modelo de extracción por fuente declara qué tablas se leen. Se traen **las 13**, incluidas `payments` y `cs_customer_products`, que el modelo actual no usa: la diapositiva 15 dice *«traer todo pensando en necesidades futuras»*.
+
+**2 · Initial Staging.** Una tabla por sistema origen, como las pilas de colores del diagrama. La fila se guarda tal como vino, en `JSONB`, sin interpretarla. Después se **perfila** lo que aterrizó (diapositiva 16): nulos, distintos, mínimo y máximo por columna, en cada carga.
+
+**3 · Data Quality.** Es procesamiento, no almacenamiento — en el diagrama no tiene pila propia. Evalúa once reglas por registro, repartidas como las divide la diapositiva 17:
+
+| Clase | Reglas | Qué detecta |
+|---|---|---|
+| **Técnica** (*Tech DQ Checks*) | `campos_obligatorios`, `tipo_de_dato_valido`, `formato_email` | Datos faltantes y datos inválidos |
+| **Negocio** (*Bus DQ Check*) | `integridad_referencial`, `valores_positivos`, `secuencia_de_fechas`, `envio_consistente_con_estado`, `precio_sugerido_coherente`, `cliente_con_vendedor`, `consistencia_entre_fuentes_cliente`, `consistencia_entre_fuentes_producto` | Datos inexactos, definiciones inconsistentes, referencias rotas |
+
+El *Error Handling* escribe cada falla en `stg_error_log`, que es el reporte de *Bad Transactions* que cuelga de la caja en el diagrama (`staging_dw.vw_reporte_transacciones_malas`). Las columnas obligatorias no están escritas en el código: **se leen del repositorio de metadatos** (`db_column.is_nullable`, Entrega 1).
+
+**4 · Clean Staging.** Separa **físicamente**: los registros sin fallas bloqueantes van a `stg_clean` (pila gris) y los demás a `stg_rejected` (pila roja), con sus motivos. La transformación solo puede leer la pila gris.
+
+**5 · Transformation.** Conforma por **área temática**, como las cajas *Conform Loan Data* / *Conform Deposit Data*:
+
+| Área | Destino | Operaciones |
+|---|---|---|
+| Tiempo | `dim_tiempo` | Generación |
+| Organización | `dim_oficina` | Proyección |
+| Ventas | `dim_estado_orden` | Agregación de valores distintos |
+| Cliente | `dim_cliente` | Join entre fuentes, consolidación |
+| Producto | `dim_producto` | Join con `productlines`, join entre fuentes |
+| Empleado | `dim_empleado` | Unión de fuentes, llave compuesta |
+| Ventas | `fact_ventas` | **Join** (5 tablas), **lookup** (5 dimensiones), **agregaciones** |
+| Servicio | `fact_llamadas_servicio` | Lookup (3 dimensiones), medidas calculadas |
+
+`fact_ventas` es el caso donde aparecen juntas las tres operaciones de la diapositiva 19.
+
+**6 · Load-Ready Publish.** La fila en su forma definitiva. Entre esta capa y el destino no queda nada por transformar.
+
+**7 · Load.** La bifurcación final del diagrama en *Involved Party* y *Event* corresponde aquí a **dimensiones** y **hechos**, y cada rama es un proceso aparte (`etl_dw_dimensions.py`, `etl_dw_facts.py`).
+
+---
+
+## 2. ODS → EDW → DM
+
+La diapositiva 12 de la Clase 4-5 dibuja el flujo *dentro* del almacén, y la 11 caracteriza cada depósito:
+
+| Depósito | Detalle | Alcance | En este proyecto |
+|---|---|---|---|
+| **ODS** | Máximo nivel de detalle | Empresa, día a día | **No se implementa** (ver abajo) |
+| **EDW** | Detalle y agregaciones | Empresa | El modelo estrella del schema `public`: `dim_*` y `fact_*` |
+| **DM** | Agregaciones, poco detalle | Tema específico | El schema `dm`: dos data marts |
+
+La flecha EDW → DM está rotulada **«Agregar. Segregar»**, y los dos data marts hacen exactamente eso:
+
+| Data mart | Agrega | Segrega |
+|---|---|---|
+| `dm.vw_interaccion_cliente_producto` | De línea y llamada a cliente × producto × mes | El tema servicio frente a ventas |
+| `dm.vw_ventas_mensuales_linea` | De línea de orden a mes × línea de producto | Solo ventas efectivas |
+
+**Por qué no hay ODS.** Un ODS sirve para consulta operativa del día a día sobre dato integrado y reciente. Este proyecto es un pipeline batch sobre dos snapshots estáticos: no hay operación diaria que consultar. La capa Clean Staging contiene el dato integrado y validado antes del EDW, pero no se expone para consulta, y llamarla ODS sería forzar el término.
+
+---
+
+## 3. Cómo se relacionan los dos marcos
 
 ```
-FUENTES                      ALMACÉN (base dw)                      PRESENTACIÓN
-──────────────         ───────────────────────────────            ──────────────
+ FUENTES        GIORDANO (schema staging_dw)                         EDW (public)     DM (dm)
+ ──────────     ─────────────────────────────────────────────        ────────────     ───────────
 
-mpd-mysql      ──┐      staging_dw:                                  Metabase
- classicmodels   │        stg_extract                           ┌──►  6 reportes
-                 ├──►         │                                 │    (solo lee
-mpd-postgres-cs ─┘        stg_dq                                │     el almacén)
- customerservice              │                                 │
-                          stg_transform                         │
-                              │                                 │
-                          stg_loadready                         │
-                              │                                 │
-                              ▼                                 │
-                      public:  dim_*  +  fact_*  ───────────────┘
-                              │
-                              ▼
-        REPOSITORIO DE METADATOS (base metadata, 18 tablas)
-        cataloga las fuentes, el almacén, los procesos y el uso
+ classicmodels ─► 1 Extract ─► 2 stg_initial_classicmodels ─┐
+                                                            ├─► 3 Data Quality
+ customerservice ► 1 Extract ─► 2 stg_initial_customerservice┘       │
+                                                              ┌──────┴──────┐
+                                                        4 stg_clean   stg_rejected
+                                                              │
+                                                   5 Transformation (conformar)
+                                                     ┌────────┴────────┐
+                                             6 load-ready          6 load-ready
+                                                     │                  │
+                                             7 dim_* ───lookup───► 7 fact_* ──► data marts
 ```
 
----
-
-## 4. Los dos principios que gobiernan el diseño
-
-Si preguntan por qué las capas están así y no de otra forma, estos son los argumentos. Ambos salen de la Clase 2 y **cambian el diseño del proceso**, no son recomendaciones estéticas.
-
-### «Read once, write many» (diapositiva 15)
-
-Cada tabla de las fuentes se lee **una sola vez por carga**, hacia Extract. El ETL de hechos —que necesita `orderdetails`, `orders`, `products`, `customers` y `employees`— **no vuelve a consultar MySQL ni PostgreSQL**: lee la copia que dejó el ETL de dimensiones en el landing.
-
-Por eso la extracción trae también tablas que el proceso de dimensiones no usa: las necesita el de hechos, y leerlas dos veces violaría el principio.
-
-### «Almacenamiento no volátil» (diapositiva 16)
-
-Ninguna tabla de staging se trunca. Cada corrida agrega filas con su `run_id`, de modo que el historial completo queda disponible — **incluidas las corridas que fallaron**, que es precisamente cuando el historial sirve.
+Giordano describe **cómo llega** el dato; ODS/EDW/DM describe **cómo se organiza** una vez adentro. La capa 7 de Giordano es el EDW; los data marts se construyen encima.
 
 ---
 
-## 5. La prueba de que las capas existen
+## 4. Los principios que gobiernan el diseño
+
+**«Read once, write many»** (diapositiva 15). Las 13 tablas se leen **una sola vez** por carga. Las ramas de dimensiones y de hechos no se conectan a las fuentes: leen la misma pila de limpios. Es verificable en la trazabilidad: ambas ramas declaran `run_origen = 1`.
+
+**«Traer todo»** (diapositiva 15). Se extraen también las tablas que hoy no se usan. El modelo puede crecer sin volver a tocar la fuente.
+
+**«Almacenamiento no volátil»** (diapositiva 16). Ninguna tabla de staging se trunca. Cada corrida agrega filas con su `run_id`, incluidas las que fallan.
+
+**«Perfilamiento»** (diapositiva 16). Cada carga perfila lo que aterrizó, no solo la Entrega 1.
+
+---
+
+## 5. Evidencia
 
 ```sql
 SELECT * FROM staging_dw.vw_trazabilidad_capas;
 ```
 
-| run_id | proceso | estado | extract | dq | rechazadas | transform | loadready |
-|---|---|---|---|---|---|---|---|
-| 1 | dimensiones | OK | 3.961 | 3.961 | 0 | 1.394 | 1.394 |
-| 2 | hechos | OK | **0** | 0 | 0 | 3.104 | 3.104 |
+| run_id | proceso | run_origen | initial | errores DQ | clean | rejected | transform | load-ready |
+|---|---|---|---|---|---|---|---|---|
+| 1 | staging | — | 4.335 | 22 | 4.335 | 0 | — | — |
+| 2 | dimensiones | 1 | — | — | — | — | 1.394 | 1.394 |
+| 3 | hechos | 1 | — | — | — | — | 3.104 | 3.104 |
 
-Los números cuentan la historia del diseño:
+**Cero rechazados es la verdad sobre estos datos.** No hay referencias rotas, valores negativos ni fechas incoherentes. Las 22 advertencias son los clientes sin vendedor asignado: la fuente admite el nulo, el negocio no lo espera.
 
-- **3.961 en Extract** son las 11 tablas de las dos fuentes, leídas una sola vez.
-- **1.394 en Transform** para dimensiones: menos que la entrada, porque de las 11 tablas extraídas solo 6 alimentan dimensiones y varias se consolidan (`products` con `productlines`, `employees` con `cs_employees`).
-- **0 en Extract para hechos** es la evidencia directa del «read once»: ese proceso no extrajo nada porque reutilizó el landing de la corrida anterior.
-- **3.104 en Transform para hechos**: 2.996 líneas de orden más 108 llamadas.
+**Y el camino de rechazo está probado.** Como los datos reales no lo ejercitan, `datawarehouse/queries/probar_calidad.py` arma un lote sintético con un defecto por cada tipo de regla y verifica que cada uno termine donde debe: 7 bloqueantes en la pila roja, 4 advertencias como limpios, ningún registro sano marcado. Corre como paso del pipeline.
 
 ---
 
-## 6. Sobre los tres destinos de calidad
+## 6. Sobre los tres destinos de la diapositiva 18
 
-La diapositiva 18 plantea separar en tres: **datos limpios, por revisar y rechazados**. Este proyecto implementa **dos** (`OK` y `RECHAZADO`), por decisión y no por omisión.
+La diapositiva 18 dice *«separar: datos limpios, por revisar y rechazados»*. Aquí hay **dos** pilas, por decisión.
 
-«Por revisar» presupone un **custodio de datos** que valide los casos dudosos antes de cada carga. Este almacén se reconstruye de forma automática y desatendida desde dos snapshots estáticos: no hay nadie en el circuito para atender una cola de revisión, y un estado que nadie revisa se convierte en una capa muerta que solo acumula filas.
-
-Los casos que en un escenario con custodio irían a «por revisar» se resuelven con una regla explícita y quedan trazados en `dq_result`, de modo que la decisión es auditable aunque no haya intervención humana. Si las fuentes pasaran a ser feeds vivos con calidad variable, el tercer estado sí se justificaría.
+«Por revisar» presupone un **custodio de datos** que valide los casos dudosos antes de cada carga. Este almacén se reconstruye desatendido desde snapshots estáticos: nadie atendería esa cola, y un estado que nadie revisa es una capa muerta. Los casos dudosos pasan como limpios y quedan trazados como `ADVERTENCIA` en el reporte. Si las fuentes pasaran a ser feeds vivos con calidad variable, el tercer estado sí se justificaría.
 
 ---
 
-## Dónde está cada cosa en el repositorio
+## Dónde está cada cosa
 
 | Qué | Archivo |
 |---|---|
-| DDL de las capas, con el mapeo a cada diapositiva | `datawarehouse/ddl/02_staging_dw.sql` |
-| ETL de dimensiones (extrae y carga las 6 dimensiones) | `datawarehouse/etl/etl_dw_dimensions.py` |
-| ETL de hechos (lee del landing, no de las fuentes) | `datawarehouse/etl/etl_dw_facts.py` |
-| Vista de trazabilidad | `staging_dw.vw_trazabilidad_capas` |
-| Explicación extendida | `docs/Entrega_2/Documento_Entrega_2.md`, sección 2 |
+| Tablas de las 7 capas, mapeadas a su diapositiva | `datawarehouse/ddl/02_staging_dw.sql` |
+| Data marts | `datawarehouse/ddl/03_data_marts.sql` |
+| Capas 1 a 4 | `datawarehouse/etl/etl_dw_staging.py` |
+| Capas 5 a 7, rama dimensiones | `datawarehouse/etl/etl_dw_dimensions.py` |
+| Capas 5 a 7, rama hechos | `datawarehouse/etl/etl_dw_facts.py` |
+| Prueba del camino de rechazo | `datawarehouse/queries/probar_calidad.py` |
+| Diagrama del pipeline | `docs/Entrega_2/img/pipeline_capas.png` |

@@ -8,6 +8,9 @@ Entrega: martes de la semana 9, antes de medianoche (BrightSpace)
 > Versión web de este mismo plan: https://claude.ai/artifact/VDw4HV6CA2QEpBxigDnFRK
 > En la Fase 1 este archivo se mueve a `docs/Entrega_2/PLAN.md`.
 
+
+> **Nota:** este es el plan original, escrito antes de implementar. La solución final lo superó en tres puntos: el ETL implementa las **siete** capas del diagrama de Giordano (no cinco), el repositorio de metadatos tiene **18** tablas (se agregó la categoría de metadatos de uso) y el almacén incluye una capa de **data marts**. La referencia vigente es [`CAPAS.md`](CAPAS.md) y el [documento formal](Documento_Entrega_2.md).
+
 ---
 
 ## 0. Las tres decisiones de arquitectura

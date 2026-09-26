@@ -105,62 +105,108 @@ Dimensión degenerada: `texto_llamada`.
 
 ## 2. Desarrollo de la solución (25 %)
 
-### 2.1 Las capas implementadas
+La solución combina los dos marcos de arquitectura que se vieron en clase. Cada uno responde una pregunta distinta:
 
-La solución sigue la **arquitectura de referencia para integración de datos de Anthony Giordano** (*Data Integration Blueprint and Modeling*, 2011, Cap. 2), que es la que se presentó en la Clase 2 del curso.
-
-El punto que vale la pena subrayar: **cada capa es una tabla física persistida**, no un paso en memoria. Esa es la diferencia entre seguir el patrón y solamente nombrarlo. Se puede consultar el estado exacto del dato en cualquier punto del proceso y comparar corridas entre sí.
-
-> Referencia rápida de la arquitectura por capas, pensada para consulta durante la sustentación: [`CAPAS.md`](CAPAS.md).
-
-| Capa | Tabla física | Diapositiva | Qué ocurre |
-|---|---|---|---|
-| **Extract / Landing** | `staging_dw.stg_extract` | 15, 16 | Copia 1:1 y sin interpretar de las 11 tablas de las dos fuentes |
-| **Data Quality** | `staging_dw.stg_dq` | 17, 18 | Evaluación de calidad, separada en técnica y de negocio |
-| **Transform** | `staging_dw.stg_transform` | 19 | Joins, lookups de llaves subrogadas y agregaciones |
-| **Load-Ready Publish** | `staging_dw.stg_loadready` | — | Forma definitiva, sin transformaciones pendientes |
-| **Load** | `dim_*`, `fact_*` | — | Escritura al modelo dimensional |
-
-Alrededor de esas capas están los tres entornos físicos:
-
-| Entorno | Dónde vive | Rol |
+| Marco | Clase | Qué organiza |
 |---|---|---|
-| **Fuentes** | `mpd-mysql` y `mpd-postgres-cs` (Docker) | Sistemas de registro. No se modifican |
-| **Almacén** | Base `dw` en `mpd-postgres-dw` | Staging + modelo dimensional |
-| **Repositorio de metadatos** | Base `metadata`, misma instancia | Cataloga todo lo anterior |
-| **Presentación** | Metabase (`mpd-metabase`) | Reportes; conecta solo al almacén |
+| Arquitectura de referencia para integración de datos de **Anthony Giordano** (*Data Integration Blueprint and Modeling*, 2011, Cap. 2) | Clase 2, diapositivas 14–19 | Las etapas por las que pasa un dato desde la fuente hasta el almacén |
+| Flujo de datos dentro del DW: **ODS → EDW → DM** | Clase 4-5, diapositivas 11–12 | Cómo se organiza el almacén una vez cargado |
 
-### 2.2 Los dos principios de Giordano y cómo se cumplen
+![Pipeline con los conteos reales de la última carga](img/pipeline_capas.png)
 
-La Clase 2 enunció dos principios en las diapositivas 15 y 16. No son recomendaciones estéticas: cambian el diseño del proceso.
+*El diagrama se genera desde la base, con los conteos reales de cada capa. Referencia rápida para la sustentación: [`CAPAS.md`](CAPAS.md).*
 
-**«Read once, write many» (diapositiva 15).** Cada tabla de las fuentes se lee **una sola vez por carga**, hacia la capa Extract. El ETL de hechos —que necesita `orderdetails`, `orders`, `products`, `customers` y `employees`— **no vuelve a consultar MySQL ni PostgreSQL**: lee la copia que dejó el ETL de dimensiones en `staging_dw.stg_extract`. Por eso la extracción trae también tablas que el proceso de dimensiones no usa: las necesita el de hechos, y leerlas dos veces violaría el principio.
+### 2.1 Las siete capas de Giordano
 
-Esto es verificable: la salida del ETL de hechos declara de qué `run_id` de landing está leyendo, y las 11 tablas aparecen extraídas exactamente una vez por corrida.
+El diagrama de la diapositiva 14 tiene siete columnas, y las diapositivas 15 a 19 señalan con una flecha cuál están explicando. La implementación las sigue una por una, y el punto que vale subrayar es que **cada capa es una tabla física persistida** en el schema `staging_dw`, no un paso en memoria:
 
-**«Almacenamiento no volátil» (diapositiva 16).** Ninguna tabla de staging se trunca. Cada corrida agrega filas con su `run_id`, y el historial completo queda disponible. La vista `staging_dw.vw_trazabilidad_capas` resume cuántas filas pasó cada capa en cada corrida, **incluidas las corridas que fallaron** — que es precisamente cuando el historial sirve.
+| # | Capa | Tabla física | Dia. | Qué dibuja el diagrama |
+|---|---|---|---|---|
+| 1 | **Extract/Publish** | *(modelos de extracción en el código)* | 15 | Un modelo lógico de extracción por fuente |
+| 2 | **Initial Staging** | `stg_initial_classicmodels`, `stg_initial_customerservice`, `stg_perfil` | 16 | Una pila por fuente, de colores distintos; perfilamiento |
+| 3 | **Data Quality** | `stg_error_log` | 17 | *Tech DQ Checks*, *Bus DQ Check*, *Error Handling* → reporte de *Bad Transactions* |
+| 4 | **Clean Staging** | `stg_clean`, `stg_rejected` | 18 | Dos pilas: gris (limpios) y roja (rechazados) |
+| 5 | **Transformation** | `stg_transform` | 19 | Conformar por área temática: joins, lookups, agregaciones |
+| 6 | **Load-Ready Publish** | `stg_loadready` | — | Forma definitiva, lista para cargar |
+| 7 | **Load** | `dim_*`, `fact_*` | — | Se bifurca en dos modelos de carga: *Involved Party* y *Event* |
 
-### 2.3 Sobre los tres destinos de calidad (diapositiva 18)
+Tres detalles del diagrama que la implementación respeta a propósito:
 
-La diapositiva 18 plantea separar en tres: **datos limpios, datos por revisar y datos rechazados**. Este proyecto implementa **dos** (`OK` y `RECHAZADO`), y es una decisión deliberada, no una omisión.
+- **Initial Staging tiene una pila por fuente.** Por eso hay dos tablas, una por sistema origen, y no una sola compartida.
+- **Data Quality no tiene pila propia.** Es procesamiento: lo que produce es el reporte de transacciones malas y, a su derecha, las dos pilas de Clean Staging. La separación entre limpios y rechazados (diapositiva 18) es una **capa de almacenamiento**, no una columna de estado.
+- **La carga se bifurca.** Las pilas *Involved Party* y *Event* del diagrama corresponden aquí a dimensiones y hechos, y cada rama es un proceso aparte que parte del mismo Clean Staging.
 
-El estado «por revisar» presupone un **custodio de datos** (*data steward*) que valide los casos dudosos antes de cada carga. Este almacén se reconstruye de forma automática y desatendida desde dos snapshots estáticos: no hay nadie en el circuito para atender una cola de revisión, y un estado que nadie revisa se convierte en una capa muerta que solo acumula filas.
+Los tres procesos ETL reproducen esa forma:
 
-Los casos que en un escenario con custodio irían a «por revisar» —por ejemplo, un cliente que aparece en una fuente y no en la otra— se resuelven aquí con una regla explícita y quedan trazados en `dq_result`, de modo que la decisión es auditable aunque no haya intervención humana. Si las fuentes pasaran a ser feeds vivos con datos de calidad variable, el tercer estado sí se justificaría.
+| Proceso | Capas | Qué hace |
+|---|---|---|
+| `etl_dw_staging.py` | 1 a 4 | La mitad frontal compartida: extrae una vez, perfila, evalúa calidad y separa |
+| `etl_dw_dimensions.py` | 5 a 7 | Rama de dimensiones |
+| `etl_dw_facts.py` | 5 a 7 | Rama de hechos |
 
-### 2.4 Herramienta y justificación
+### 2.2 Los principios de Giordano y cómo se cumplen
+
+La Clase 2 enunció cuatro principios en las diapositivas 15 y 16. Cambian el diseño del proceso, no son recomendaciones estéticas:
+
+**«Read once, write many»** (diapositiva 15). Las 13 tablas de las fuentes se leen **una sola vez por carga**. Las ramas de dimensiones y de hechos no se conectan a MySQL ni a PostgreSQL de origen: leen la misma pila de limpios. La tabla de control lo registra: ambas ramas declaran `run_origen` igual a la corrida de staging que consumieron.
+
+**«Traer todo pensando en necesidades futuras»** (diapositiva 15). Se extraen también `payments` y `cs_customer_products`, que el modelo actual no usa. El modelo puede crecer sin volver a tocar la fuente.
+
+**«Almacenamiento no volátil»** (diapositiva 16). Ninguna tabla de staging se trunca. Cada corrida agrega filas con su `run_id` y el historial completo queda disponible, incluidas las corridas que fallan.
+
+**«Perfilamiento»** (diapositiva 16). Cada carga perfila lo que aterrizó en Initial Staging —nulos, distintos, mínimo y máximo por columna— en `stg_perfil`. El perfilamiento deja de ser un ejercicio único de la Entrega 1 y pasa a correr en cada carga.
+
+### 2.3 La capa de calidad y la separación en dos pilas
+
+La capa 3 evalúa **once reglas por registro**, separadas como las divide la diapositiva 17:
+
+| Clase | Reglas | Acción al fallar |
+|---|---|---|
+| **Técnica** (*Tech DQ Checks*) | Campos obligatorios, tipo de dato válido | Rechazo |
+| | Formato de correo | Advertencia |
+| **Negocio** (*Bus DQ Check*) | Integridad referencial (dentro de cada fuente y entre fuentes), valores positivos, secuencia de fechas, envío coherente con el estado | Rechazo |
+| | Precio sugerido coherente, cliente con vendedor, consistencia de definiciones entre fuentes | Advertencia |
+
+Las columnas obligatorias **no están escritas en el ETL**: se leen del repositorio de metadatos (`db_column.is_nullable`), que es el metadato técnico catalogado en la Entrega 1. El metadato gobierna el proceso.
+
+**Resultado sobre los datos reales:** 4.335 registros evaluados, **0 rechazados** y 22 advertencias. Cero rechazados es la verdad sobre estos datos: no tienen referencias rotas, valores negativos ni fechas incoherentes. Las 22 advertencias son los clientes sin representante de ventas asignado: la fuente admite el nulo (válido técnicamente), pero el negocio espera que todo cliente tenga vendedor. Es exactamente la diferencia entre calidad técnica y de negocio de la diapositiva 17.
+
+**El camino de rechazo está probado.** Como los datos reales no lo ejercitan, `datawarehouse/queries/probar_calidad.py` arma un lote sintético con un defecto por cada tipo de regla, usando las mismas funciones del ETL y sin tocar el almacén. Verifica que los 7 defectos bloqueantes terminen en la pila roja, que las 4 advertencias pasen como limpias y que ningún registro sano se marque por error. Corre como paso del pipeline.
+
+**Sobre los tres destinos de la diapositiva 18.** La diapositiva plantea limpios, por revisar y rechazados. Se implementan dos pilas, y es una decisión: «por revisar» presupone un custodio de datos que valide los casos dudosos antes de cada carga, y este almacén se reconstruye desatendido desde snapshots estáticos. Un estado que nadie revisa es una capa muerta. Los casos dudosos pasan como limpios y quedan trazados como advertencia en el reporte, de modo que la decisión es auditable. Con feeds vivos de calidad variable, el tercer estado sí se justificaría.
+
+### 2.4 ODS → EDW → DM
+
+La diapositiva 12 de la Clase 4-5 dibuja el flujo dentro del almacén, y la 11 caracteriza cada depósito:
+
+| Depósito | Detalle | Alcance | En este proyecto |
+|---|---|---|---|
+| **ODS** | Máximo nivel de detalle | Empresa, día a día | No se implementa |
+| **EDW** | Detalle y agregaciones | Empresa | Modelo estrella en el schema `public` |
+| **DM** | Agregaciones, poco detalle | Tema específico | Schema `dm` con dos data marts |
+
+La flecha EDW → DM está rotulada «Agregar. Segregar», y los dos data marts hacen exactamente eso:
+
+| Data mart | Agrega | Segrega |
+|---|---|---|
+| `dm.vw_interaccion_cliente_producto` | De línea de orden y llamada a cliente × producto × mes | El tema servicio frente a ventas |
+| `dm.vw_ventas_mensuales_linea` | De línea de orden a mes × línea de producto | Solo ventas efectivas |
+
+**Por qué no hay ODS.** Un ODS sirve para consulta operativa del día a día sobre dato integrado y reciente. Este proyecto es un pipeline batch sobre dos snapshots estáticos: no hay operación diaria que consultar. Clean Staging contiene el dato integrado y validado antes del EDW, pero no se expone para consulta, y llamarlo ODS sería forzar el término.
+
+### 2.5 Herramientas y justificación
 
 | Componente | Herramienta | Por qué |
 |---|---|---|
-| Almacén y repositorio | PostgreSQL 16 en Docker | Dos bases separadas en una misma instancia: separación lógica sin costo de infraestructura adicional |
-| ETL | Python 3.11 + SQLAlchemy 2.1 + pandas 3.0 | Mismo stack de la Entrega 1, lo que permite reutilizar el patrón por capas de Giordano en ambas entregas |
-| Diagramas | Graphviz en contenedor Docker | Genera el diagrama desde el esquema real de la base, no de un dibujo a mano |
-| Reportes | Metabase (open source) sobre Docker | Cero costo, cero instalación, conecta nativo a PostgreSQL |
+| Almacén y repositorio | PostgreSQL 16 en Docker | Dos bases separadas en una misma instancia: separación lógica sin infraestructura adicional |
+| ETL | Python 3.11 + SQLAlchemy 2.1 + pandas 3.0 | Mismo stack de la Entrega 1, lo que permite reutilizar la arquitectura de Giordano en ambas entregas |
+| Diagramas | Graphviz en contenedor Docker | Se generan desde el esquema y los conteos reales, no a mano |
+| Reportes | Metabase (open source) sobre Docker | Cero costo, cero instalación, conexión nativa a PostgreSQL |
 | Orquestación | `docker-compose` + `run_all.py` | Todo el proyecto se levanta y se carga con un comando, en cualquier máquina |
 
 Se evaluó y se descartó AWS: ningún punto del enunciado exige nube, Redshift no está habilitado en la cuenta disponible y una instancia RDS habría costado entre 12 y 15 dólares mensuales sin aportar nada a la calificación.
 
-### 2.3 Validación de la carga
+### 2.6 Validación de la carga
 
 La solución no se da por buena porque el ETL termine sin error, sino porque los totales del almacén **cuadran con las fuentes**. `datawarehouse/queries/validacion.py` ejecuta nueve comparaciones:
 
@@ -176,7 +222,7 @@ La solución no se da por buena porque el ETL termine sin error, sino porque los
 | Oficinas | 7 | 7 | OK |
 | Empleados (ambas fuentes) | 53 | 53 | OK |
 
-Adicionalmente se verificó que el **backup restaura de verdad**: se creó una base desechable, se cargó `dw_backup.sql` y se compararon los conteos y el monto total contra el almacén original. Coincidieron en todo.
+Adicionalmente se verificó que **el backup restaura de verdad**: se crea una base desechable, se carga `dw_backup.sql` y se comparan conteos, monto total y las dos vistas de data marts contra el almacén original.
 
 ---
 
@@ -207,7 +253,7 @@ Si las fuentes pasaran a ser feeds vivos, `dim_cliente` y `dim_producto` serían
 
 ### 3.3 Diagrama físico del repositorio completo
 
-![Repositorio de metadatos con las catorce tablas](img/repositorio_metadatos.png)
+![Repositorio de metadatos con las dieciocho tablas](img/repositorio_metadatos.png)
 
 Lo importante del diagrama está en el centro: **`db_column`**, la tabla de la Entrega 1 que cataloga las 85 columnas de las fuentes, se conecta a `dw_lineage` y a `dq_rule`. Gracias a eso el linaje ya no se corta en la frontera de las fuentes, sino que llega hasta el almacén.
 
@@ -270,53 +316,67 @@ La primera medición ya arrojó algo accionable, que es el objetivo de esta cate
 
 ### 4.1 Arquitectura del proceso
 
-Se construyeron dos procesos que implementan la arquitectura de Giordano con **tablas físicas persistidas**, no con pasos en memoria:
+El ETL son tres procesos que reproducen la forma del diagrama de Giordano: una mitad frontal compartida y una carga que se bifurca.
 
-| Proceso | Archivo | Qué carga |
-|---|---|---|
-| `etl_dw_dimensions` | `datawarehouse/etl/etl_dw_dimensions.py` | Extrae las 11 tablas fuente y carga las seis dimensiones |
-| `etl_dw_facts` | `datawarehouse/etl/etl_dw_facts.py` | Carga los dos hechos y la vista integrada, leyendo del landing |
+| Proceso | Archivo | Capas | Lee de | Escribe en |
+|---|---|---|---|---|
+| Staging | `datawarehouse/etl/etl_dw_staging.py` | 1 a 4 | Las dos fuentes, **una sola vez** | `stg_initial_*`, `stg_perfil`, `stg_error_log`, `stg_clean`, `stg_rejected` |
+| Dimensiones | `datawarehouse/etl/etl_dw_dimensions.py` | 5 a 7 | `stg_clean` | `stg_transform`, `stg_loadready`, `dim_*` |
+| Hechos | `datawarehouse/etl/etl_dw_facts.py` | 5 a 7 | `stg_clean` y las dimensiones | `stg_transform`, `stg_loadready`, `fact_*` |
 
-**El orden no es negociable** por dos razones distintas. La primera es de integridad: los hechos apuntan a las dimensiones por llave foránea, así que las dimensiones tienen que existir antes. La segunda es arquitectónica: el ETL de hechos **no lee las fuentes**, lee el landing que dejó el de dimensiones, cumpliendo el «read once, write many».
+**El orden es obligatorio** por dos razones distintas. La primera es arquitectónica: dimensiones y hechos consumen la pila de limpios, así que staging tiene que haber terminado. La segunda es de integridad: los hechos guardan la llave subrogada de cada dimensión, así que las dimensiones tienen que existir antes.
 
-### 4.2 Recorrido de una fila por las capas
+### 4.2 Recorrido del dato por las capas
 
-La tabla siguiente es la salida real de `staging_dw.vw_trazabilidad_capas` tras una carga limpia:
+Salida real de `staging_dw.vw_trazabilidad_capas` tras una carga limpia:
 
-| Corrida | Proceso | Estado | Extract | Data Quality | Transform | Load-Ready |
-|---|---|---|---|---|---|---|
-| 1 | dimensiones | OK | 3.961 | 3.961 | 1.394 | 1.394 |
-| 2 | hechos | OK | 0 | 0 | 3.104 | 3.104 |
+| Corrida | Proceso | Lee de | Initial Staging | Errores DQ | Limpios | Rechazados | Transform | Load-Ready |
+|---|---|---|---|---|---|---|---|---|
+| 1 | staging | fuentes | 4.335 | 22 | 4.335 | 0 | — | — |
+| 2 | dimensiones | corrida 1 | — | — | — | — | 1.394 | 1.394 |
+| 3 | hechos | corrida 1 | — | — | — | — | 3.104 | 3.104 |
 
 Los números cuentan la historia del diseño:
 
-- **3.961 filas en Extract** son las 11 tablas de las dos fuentes, leídas una sola vez.
-- **1.394 en Transform** para dimensiones: menos que la entrada, porque de las 11 tablas extraídas solo 6 alimentan dimensiones y varias se consolidan (`products` con `productlines`, `employees` con `cs_employees`).
-- **0 en Extract para hechos**: la evidencia directa de que ese proceso no volvió a tocar las fuentes.
+- **4.335 en Initial Staging** son las 13 tablas de las dos fuentes (3.864 de `classicmodels`, 471 de `customerservice`), leídas una vez.
+- **22 errores y 0 rechazados**: las 22 entradas son advertencias, así que ningún registro sale del flujo.
+- **Las dos ramas leen de la corrida 1**: consumen la misma extracción. Es la evidencia directa del «read once».
+- **1.394 en Transform para dimensiones**: de las 13 tablas solo alimentan dimensiones las que describen actores y contexto, y varias se consolidan (`products` con `productlines`, `employees` con `cs_employees`).
 - **3.104 en Transform para hechos**: 2.996 líneas de orden más 108 llamadas.
 
-### 4.3 La capa Transform: joins, lookups y agregaciones
+### 4.3 La capa Transformation: conformar por área temática
 
-La diapositiva 19 de la Clase 2 nombra las tres operaciones de esta capa, y las tres ocurren aquí:
+En el diagrama, la caja de transformación dice *Conform Loan Data* y *Conform Deposit Data*: conforma **por tema**, no por fuente. Aquí cada fila de `stg_transform` registra el área conformada y las operaciones que se le aplicaron:
 
-**Joins.** `fact_ventas` cruza cinco tablas del landing (`orderdetails`, `orders`, `products`, `customers`, `employees`) para reunir las medidas y las llaves de negocio en una sola fila.
+| Área | Destino | Operaciones |
+|---|---|---|
+| Tiempo | `dim_tiempo` | Generación |
+| Organización | `dim_oficina` | Proyección |
+| Ventas | `dim_estado_orden` | Agregación de valores distintos |
+| Cliente | `dim_cliente` | Join entre fuentes, consolidación de dirección |
+| Producto | `dim_producto` | Join con `productlines`, join entre fuentes |
+| Empleado | `dim_empleado` | Unión de fuentes, llave compuesta |
+| Ventas | `fact_ventas` | Join (5 tablas), lookup (5 dimensiones), medidas calculadas |
+| Servicio | `fact_llamadas_servicio` | Lookup (3 dimensiones), medidas calculadas |
 
-**Lookups.** Es la operación característica de un ETL dimensional: el hecho no guarda `customerNumber = 103`, guarda `cliente_key = 7`, que es la fila que le tocó a ese cliente en `dim_cliente`. En esta implementación el lookup deja rastro: el resultado queda en `stg_transform` con la anotación de qué operaciones se aplicaron, en vez de vivir y desaparecer en un diccionario de Python.
+Las tres operaciones de la diapositiva 19 aparecen juntas en `fact_ventas`:
 
-El caso de `dim_empleado` muestra por qué el lookup importa: su llave es compuesta `(numero_empleado, sistema_origen)`, de modo que el número 26 de `classicmodels` y el 26 de `customerservice` resuelven a llaves subrogadas distintas, que es lo correcto porque son dos personas diferentes.
+**Joins.** Cruza cinco tablas de la pila de limpios (`orderdetails`, `orders`, `products`, `customers`, `employees`) para reunir medidas y llaves de negocio en una fila.
 
-**Agregaciones.** Las medidas calculadas (`monto_linea`, `costo_linea`, `margen_linea`, `dias_hasta_envio`) y la derivación de `dim_estado_orden` a partir de los valores distintos de `orders.status`.
+**Lookups.** La operación característica de un ETL dimensional: el hecho no guarda `customerNumber = 103`, guarda la `cliente_key` que le tocó a ese cliente en `dim_cliente`. El caso de `dim_empleado` muestra por qué el lookup necesita contexto: su llave es compuesta `(numero_empleado, sistema_origen)`, así que el lookup de un vendedor se resuelve siempre contra la población de `classicmodels` y el de un agente contra la de `customerservice`. Hoy los números de las dos fuentes no se solapan (0 % medido en la Entrega 1), pero son secuencias independientes de dos sistemas distintos y nada garantiza que no choquen mañana; la llave compuesta hace que el modelo no dependa de esa casualidad.
 
-Si alguna llave obligatoria queda sin resolver, el proceso **falla en vez de cargar datos huérfanos**. Es una decisión deliberada: un hecho que apunta a una dimensión inexistente corrompe todos los reportes que lo agreguen.
+**Agregaciones.** Las medidas calculadas (`monto_linea`, `costo_linea`, `margen_linea`, `dias_hasta_envio`).
+
+Si alguna llave obligatoria queda sin resolver, el proceso **falla en vez de cargar un hecho huérfano**. Un hecho que apunta a una dimensión inexistente corrompe todos los reportes que lo agreguen.
 
 ### 4.4 Registro en el repositorio de metadatos
 
 Cada corrida se registra en dos lugares complementarios:
 
-- `staging_dw.etl_run` — control interno del proceso, con el detalle por capa.
-- `etl_execution` en el repositorio de metadatos — la vista de gobierno, con proceso, herramienta, filas leídas, escritas y rechazadas.
+- `staging_dw.etl_run`, el control interno del pipeline, con la corrida de origen de cada rama.
+- `etl_execution` en el repositorio de metadatos, la vista de gobierno: proceso, herramienta, filas leídas, escritas y rechazadas.
 
-Además, cada regla de calidad evaluada deja su resultado en `dq_result`, ligado a la ejecución concreta que la evaluó.
+Además, cada regla evaluada deja su resultado en `dq_result`, ligado a la ejecución concreta. En `dq_rule`, cada regla lleva la capa donde se evalúa (`DATA_QUALITY`, `TRANSFORMATION` o `MONITOREO`), su criterio DAMA y su clase técnica o de negocio.
 
 ### 4.5 Los problemas de calidad de la Entrega 1, resueltos
 

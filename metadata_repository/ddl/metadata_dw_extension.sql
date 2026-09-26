@@ -150,16 +150,24 @@ CREATE TABLE IF NOT EXISTS dq_rule (
     -- Clase de calidad segun Giordano (Clase 2, dia. 17): la tecnica la
     -- detecta la maquina, la de negocio requiere conocer la semantica.
     clase_dq         VARCHAR(10),
+    -- En que capa del pipeline se evalua la regla:
+    --   DATA_QUALITY    capa 3: se evalua registro por registro y puede
+    --                   mandar el registro a la pila de rechazados
+    --   TRANSFORMATION  capa 5: hallazgo del perfilamiento que se
+    --                   resuelve con una decision de modelado
+    --   MONITOREO       sobre la operacion del almacen, fuera del flujo
+    capa             VARCHAR(20),
     source_column_id INTEGER REFERENCES db_column(column_id) ON DELETE SET NULL,
     expression       TEXT NOT NULL,
     severity         VARCHAR(20) NOT NULL,
     resolution       TEXT NOT NULL,   -- que hace el ETL cuando la regla falla
     CHECK (rule_type IN ('COMPLETITUD', 'UNICIDAD', 'INTEGRIDAD', 'RANGO',
-                         'CONFORMIDAD', 'FRESCURA')),
+                         'FORMATO', 'COHERENCIA', 'CONFORMIDAD', 'FRESCURA')),
     CHECK (criterio_dama IS NULL OR criterio_dama IN
            ('EXACTITUD', 'EXHAUSTIVIDAD', 'CONSISTENCIA', 'OPORTUNIDAD',
             'RELEVANCIA', 'CONFIANZA')),
     CHECK (clase_dq IS NULL OR clase_dq IN ('TECNICA', 'NEGOCIO')),
+    CHECK (capa IS NULL OR capa IN ('DATA_QUALITY', 'TRANSFORMATION', 'MONITOREO')),
     CHECK (severity  IN ('BLOQUEANTE', 'ADVERTENCIA', 'INFORMATIVA'))
 );
 

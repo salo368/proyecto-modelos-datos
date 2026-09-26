@@ -24,7 +24,8 @@ DESTINOS = {
         "url_var": "DW_URL",
         "salida":  "datawarehouse/backup/dw_backup.sql",
         "titulo":  "Almacen de Datos (modelo dimensional)",
-        "ddl":     "datawarehouse/ddl/01_dw_schema.sql",
+        "ddl":     ["datawarehouse/ddl/01_dw_schema.sql",
+                    "datawarehouse/ddl/03_data_marts.sql"],
         # Orden de carga: respeta las llaves foraneas.
         "orden": [
             "dim_tiempo", "dim_cliente", "dim_producto", "dim_empleado",
@@ -151,15 +152,18 @@ def main():
         partes.append(f"DROP TABLE IF EXISTS {t} CASCADE;\n")
     partes.append("\n")
 
-    if cfg["ddl"] and os.path.exists(cfg["ddl"]):
-        # Para el almacen se reutiliza el DDL fuente, que lleva los
-        # comentarios que explican cada decision de diseno.
-        ddl = open(cfg["ddl"], encoding="utf-8").read()
-        ddl = "\n".join(
-            l for l in ddl.splitlines()
-            if not l.strip().startswith("DROP ")
-        )
-        partes.append(ddl + "\n\n")
+    if cfg["ddl"]:
+        # Para el almacen se reutilizan los DDL fuente, que llevan los
+        # comentarios que explican cada decision de diseno. Van el modelo
+        # estrella (EDW) y los data marts; staging no, porque es el
+        # proceso y no el producto: se reconstruye corriendo el ETL.
+        for ruta in cfg["ddl"]:
+            ddl = open(ruta, encoding="utf-8").read()
+            ddl = "\n".join(
+                l for l in ddl.splitlines()
+                if not l.strip().startswith("DROP ")
+            )
+            partes.append(f"-- ---- {ruta} ----\n{ddl}\n\n")
     else:
         partes.append(ddl_por_introspeccion(insp, tablas) + "\n")
 

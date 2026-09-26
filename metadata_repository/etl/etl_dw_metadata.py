@@ -105,10 +105,19 @@ OBJETOS = {
         "cerradas de las canceladas, en disputa o en espera.", False),
     "vw_interaccion_cliente_producto": (
         "VIEW", "Cliente x producto x mes.",
-        "Vista que cruza los dos hechos al grano cliente-producto-mes. Es la que "
-        "permite responder que productos generan mas llamadas por unidad vendida, "
-        "pregunta que ninguna fuente contesta por si sola.", False),
+        "Data mart (schema dm) que cruza los dos hechos al grano "
+        "cliente-producto-mes. Agrega y segrega desde el EDW, como la flecha "
+        "EDW -> DM de la Clase 4-5. Responde que productos generan mas llamadas "
+        "por unidad vendida, pregunta que ninguna fuente contesta por si sola.", False),
+    "vw_ventas_mensuales_linea": (
+        "VIEW", "Mes x linea de producto.",
+        "Data mart (schema dm) de desempeno comercial: ordenes, unidades, monto "
+        "y margen por mes y linea de producto, solo ventas efectivas.", False),
 }
+
+# Schema donde vive cada vista: el modelo estrella (EDW) esta en public y
+# los data marts en dm, siguiendo el flujo ODS -> EDW -> DM de la Clase 4-5.
+SCHEMA_VISTAS = "dm"
 
 # Aditividad y formula de cada medida.
 MEDIDAS = {
@@ -227,7 +236,9 @@ def rol_atributo(columna, es_pk, tabla):
 def main():
     insp = sa.inspect(DW)
     tablas = insp.get_table_names(schema="public")
-    vistas = insp.get_view_names(schema="public")
+    vistas = insp.get_view_names(schema=SCHEMA_VISTAS)
+    schema_de = {**{t: "public" for t in tablas},
+                 **{v: SCHEMA_VISTAS for v in vistas}}
 
     with META.begin() as m:
         # Limpieza: el catalogo del almacen se regenera completo en cada
@@ -253,10 +264,9 @@ def main():
                 continue
             tipo, grano, descripcion, conformada = OBJETOS[nombre]
 
-            filas = None
-            if nombre in tablas or nombre in vistas:
-                with DW.connect() as d:
-                    filas = d.execute(sa.text(f"SELECT COUNT(*) FROM {nombre}")).scalar()
+            with DW.connect() as d:
+                filas = d.execute(sa.text(
+                    f"SELECT COUNT(*) FROM {schema_de[nombre]}.{nombre}")).scalar()
 
             scd_tipo, scd_just = SCD.get(nombre, (None, None))
             obj_id = m.execute(sa.text("""
