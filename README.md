@@ -1,6 +1,6 @@
 # Proyecto Final — Modelos y Persistencia de Datos
 
-**Pontificia Universidad Javeriana — Modelos y Persistencia de Datos — 2026-01**
+**Pontificia Universidad Javeriana — Modelos y Persistencia de Datos — 2026-03**
 
 Elaborado por: Luis Daniel Sierra Pineda, David Cortes, Salomón Saenz
 
