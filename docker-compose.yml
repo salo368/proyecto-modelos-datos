@@ -1,0 +1,108 @@
+# ============================================================
+# Local stack: the two sources, the metadata repository, the data
+# warehouse and Metabase.
+#
+#   docker compose up -d
+#
+# The sources are restored from the dumps in sources/ the first time
+# each volume is created (docker-entrypoint-initdb.d only runs on an
+# empty volume). To start from scratch:
+#
+#   docker compose down -v
+#
+# Host ports are shifted (3307, 5433, 5434) so they do not clash with
+# a MySQL or PostgreSQL already installed on the machine.
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # Source 1: classicmodels (sales). The dump carries its own
+  # CREATE DATABASE and USE statements.
+  # ----------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: mpd-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: javeriana
+      MYSQL_DATABASE: classicmodels
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sources/mysqlsampledatabase.sql:/docker-entrypoint-initdb.d/01-classicmodels.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pjaveriana"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # ----------------------------------------------------------
+  # Source 2: customerservice (call center). The dump only creates
+  # tables in schema public, so the database is named via POSTGRES_DB.
+  # ----------------------------------------------------------
+  postgres-cs:
+    image: postgres:16-alpine
+    container_name: mpd-postgres-cs
+    environment:
+      POSTGRES_PASSWORD: javeriana
+      POSTGRES_DB: customerservice
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-cs-data:/var/lib/postgresql/data
+      - ./sources/customerservice.sql:/docker-entrypoint-initdb.d/01-customerservice.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d customerservice"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # Metadata repository (database 'metadata') and data warehouse
+  # (database 'dw', created by docker/init-dw.sql) share one instance.
+  # ----------------------------------------------------------
+  postgres-dw:
+    image: postgres:16-alpine
+    container_name: mpd-postgres-dw
+    environment:
+      POSTGRES_PASSWORD: javeriana
+      POSTGRES_DB: metadata
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-dw-data:/var/lib/postgresql/data
+      - ./docker/init-dw.sql:/docker-entrypoint-initdb.d/01-create-dw.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d metadata"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # Metabase: reporting tool. reports/build_dashboard.py registers
+  # only the 'dw' database as a data source, never the sources.
+  # ----------------------------------------------------------
+  metabase:
+    image: metabase/metabase:latest
+    container_name: mpd-metabase
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_SESSION_SECRET_KEY: javeriana-entrega2-clave-de-sesion-local
+      MB_ANON_TRACKING_ENABLED: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - metabase-data:/metabase-data
+    depends_on:
+      postgres-dw:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  postgres-cs-data:
+  postgres-dw-data:
+  metabase-data:

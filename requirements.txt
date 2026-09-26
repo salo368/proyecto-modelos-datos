@@ -1,0 +1,9 @@
+# pandas 3.x requires SQLAlchemy >= 2.0.36; with an older version pandas
+# silently stops recognising engines and fails later with
+# "'Engine' object has no attribute 'cursor'".
+SQLAlchemy>=2.0.36
+pandas>=2.2
+pymysql>=1.1
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+requests>=2.31

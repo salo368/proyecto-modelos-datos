@@ -1,0 +1,15 @@
+# Virtual environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Credentials. .env.example is versioned: it only holds the local
+# docker-compose values, which grant access to nothing remote.
+.env
+.env.*
+!.env.example
+
+# Operating system
+.DS_Store
+Thumbs.db

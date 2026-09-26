@@ -1,0 +1,50 @@
+digraph pipeline {
+  graph [rankdir=LR, nodesep=0.35, ranksep=0.55, fontname="Helvetica", label="Pipeline ETL del almacen (conteos de la ultima carga)", labelloc=t, fontsize=14];
+  node [fontname="Helvetica", fontsize=11];
+  edge [color="#5d6b7d", arrowsize=0.7];
+
+  subgraph cluster_1 { label="1  Extract/Publish"; style=dashed; color="#8a96a3";
+  ext_cm [shape=box, style="filled", fillcolor="#e8ecf1", label=<<B>Modelo de extraccion</B><BR/><FONT POINT-SIZE="9">classicmodels (MySQL)</FONT>>];
+  ext_cs [shape=box, style="filled", fillcolor="#e8ecf1", label=<<B>Modelo de extraccion</B><BR/><FONT POINT-SIZE="9">customerservice (PostgreSQL)</FONT>>];
+  }
+  subgraph cluster_2 { label="2  Initial Staging"; style=dashed; color="#8a96a3";
+  ini_cm [shape=box3d, style="filled", fillcolor="#dbe8f5", label=<<B>stg_initial_classicmodels</B><BR/><FONT POINT-SIZE="9">8 tablas, 3864 filas</FONT>>];
+  ini_cs [shape=box3d, style="filled", fillcolor="#e2f0e4", label=<<B>stg_initial_customerservice</B><BR/><FONT POINT-SIZE="9">5 tablas, 471 filas</FONT>>];
+  profile [shape=note, style="filled", fillcolor="#e8ecf1", label=<<B>stg_perfil</B><BR/><FONT POINT-SIZE="9">85 columnas perfiladas</FONT>>];
+  }
+  subgraph cluster_3 { label="3  Data Quality"; style=dashed; color="#8a96a3";
+  dq [shape=box, style="filled", fillcolor="#fbeccd", label=<<B>Reglas tecnicas y de negocio</B><BR/><FONT POINT-SIZE="9">11 reglas por registro</FONT>>];
+  errlog [shape=note, style="filled", fillcolor="#fbeccd", label=<<B>stg_error_log</B><BR/><FONT POINT-SIZE="9">22 entradas (22 advertencias)</FONT>>];
+  }
+  subgraph cluster_4 { label="4  Clean Staging"; style=dashed; color="#8a96a3";
+  clean [shape=box3d, style="filled", fillcolor="#e8ecf1", label=<<B>stg_clean</B><BR/><FONT POINT-SIZE="9">4335 filas limpias</FONT>>];
+  rej [shape=box3d, style="filled", fillcolor="#f6d4d4", label=<<B>stg_rejected</B><BR/><FONT POINT-SIZE="9">0 filas rechazadas</FONT>>];
+  }
+  subgraph cluster_5 { label="5  Transformation"; style=dashed; color="#8a96a3";
+  tr_d [shape=box, style="filled", fillcolor="#e8ecf1", label=<<B>Conformar dimensiones</B><BR/><FONT POINT-SIZE="9">6 areas, 1394 filas</FONT>>];
+  tr_f [shape=box, style="filled", fillcolor="#e8ecf1", label=<<B>Conformar hechos</B><BR/><FONT POINT-SIZE="9">Ventas y Servicio, 3104 filas</FONT>>];
+  }
+  subgraph cluster_6 { label="6  Load-Ready Publish"; style=dashed; color="#8a96a3";
+  lr_d [shape=box3d, style="filled", fillcolor="#e8ecf1", label=<<B>stg_loadready</B><BR/><FONT POINT-SIZE="9">DIMENSIONES, 1394 filas</FONT>>];
+  lr_f [shape=box3d, style="filled", fillcolor="#e8ecf1", label=<<B>stg_loadready</B><BR/><FONT POINT-SIZE="9">HECHOS, 3104 filas</FONT>>];
+  }
+  subgraph cluster_7 { label="7  Load"; style=dashed; color="#8a96a3";
+  dims [shape=cylinder, style="filled", fillcolor="#e2f0e4", label=<<B>dim_*</B><BR/><FONT POINT-SIZE="9">6 dimensiones, 1394 filas</FONT>>];
+  facts [shape=cylinder, style="filled", fillcolor="#dbe8f5", label=<<B>fact_*</B><BR/><FONT POINT-SIZE="9">2 hechos, 3104 filas</FONT>>];
+  }
+  subgraph cluster_8 { label="Data marts (schema dm)"; style=dashed; color="#8a96a3";
+  dm1 [shape=cylinder, style="filled", fillcolor="#ece3f3", label=<<B>dm.vw_interaccion_cliente_producto</B><BR/><FONT POINT-SIZE="9">3100 filas</FONT>>];
+  dm2 [shape=cylinder, style="filled", fillcolor="#ece3f3", label=<<B>dm.vw_ventas_mensuales_linea</B><BR/><FONT POINT-SIZE="9">180 filas</FONT>>];
+  }
+
+  ext_cm -> ini_cm; ext_cs -> ini_cs;
+  ini_cm -> profile [style=dotted]; ini_cs -> profile [style=dotted];
+  ini_cm -> dq; ini_cs -> dq;
+  dq -> errlog [style=dotted];
+  dq -> clean; dq -> rej [color="#c0392b"];
+  clean -> tr_d; clean -> tr_f;
+  tr_d -> lr_d; tr_f -> lr_f;
+  lr_d -> dims; lr_f -> facts;
+  dims -> tr_f [style=dashed, label="lookup", fontsize=9];
+  facts -> dm1; dims -> dm1; facts -> dm2; dims -> dm2;
+}
