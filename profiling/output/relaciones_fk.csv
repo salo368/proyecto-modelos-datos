@@ -1,0 +1,14 @@
+base_datos,tabla_hija,columna_fk,tabla_padre,columna_pk_padre,total_filas_hija,fk_nulas,pct_fk_nulas,filas_huerfanas,pct_huerfanas,max_hijos_por_padre,cardinalidad_observada
+classicmodels,customers,salesRepEmployeeNumber,employees,employeeNumber,122,22,18.03,0,0.0,10,1:N
+classicmodels,employees,reportsTo,employees,employeeNumber,23,1,4.35,0,0.0,6,1:N
+classicmodels,employees,officeCode,offices,officeCode,23,0,0.0,0,0.0,6,1:N
+classicmodels,orderdetails,orderNumber,orders,orderNumber,2996,0,0.0,0,0.0,18,1:N
+classicmodels,orderdetails,productCode,products,productCode,2996,0,0.0,0,0.0,53,1:N
+classicmodels,orders,customerNumber,customers,customerNumber,326,0,0.0,0,0.0,26,1:N
+classicmodels,payments,customerNumber,customers,customerNumber,273,0,0.0,0,0.0,13,1:N
+classicmodels,products,productLine,productlines,productLine,110,0,0.0,0,0.0,38,1:N
+customerservice,cs_customer_calls,customernumber,cs_customers,customernumber,108,0,0.0,0,0.0,5,1:N
+customerservice,cs_customer_calls,employeenumber,cs_employees,employeenumber,108,0,0.0,0,0.0,7,1:N
+customerservice,cs_customer_calls,productcode,cs_products,productcode,108,0,0.0,0,0.0,7,1:N
+customerservice,cs_customer_products,customernumber,cs_customers,customernumber,101,0,0.0,0,0.0,3,1:N
+customerservice,cs_customer_products,productcode,cs_products,productcode,101,0,0.0,0,0.0,4,1:N

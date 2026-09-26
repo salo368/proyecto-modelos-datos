@@ -1,0 +1,86 @@
+base_datos,tabla,columna,tipo_dato,total_filas,nulos,pct_nulos,valores_distintos,min,max,patron_texto
+classicmodels,customers,customerNumber,int(11),122,0,0.0,122,103,496,
+classicmodels,customers,customerName,varchar(50),122,0,0.0,122,len_min=10,len_max=34,libre/mixto
+classicmodels,customers,contactLastName,varchar(50),122,0,0.0,108,len_min=3,len_max=15,libre/mixto
+classicmodels,customers,contactFirstName,varchar(50),122,0,0.0,111,len_min=2,len_max=11,alfabetico
+classicmodels,customers,phone,varchar(50),122,0,0.0,121,len_min=8,len_max=18,telefono_like
+classicmodels,customers,addressLine1,varchar(50),122,0,0.0,122,len_min=10,len_max=32,libre/mixto
+classicmodels,customers,addressLine2,varchar(50),122,100,81.97,21,len_min=6,len_max=24,libre/mixto
+classicmodels,customers,city,varchar(50),122,0,0.0,96,len_min=3,len_max=17,libre/mixto
+classicmodels,customers,state,varchar(50),122,73,59.84,18,len_min=2,len_max=13,alfabetico
+classicmodels,customers,postalCode,varchar(15),122,7,5.74,94,len_min=1,len_max=9,alfanumerico
+classicmodels,customers,country,varchar(50),122,0,0.0,28,len_min=2,len_max=12,alfabetico
+classicmodels,customers,salesRepEmployeeNumber,int(11),122,22,18.03,15,1165,1702,
+classicmodels,customers,creditLimit,"decimal(10,2)",122,0,0.0,93,len_min=4,len_max=9,telefono_like
+classicmodels,employees,employeeNumber,int(11),23,0,0.0,23,1002,1702,
+classicmodels,employees,lastName,varchar(50),23,0,0.0,19,len_min=3,len_max=9,alfabetico
+classicmodels,employees,firstName,varchar(50),23,0,0.0,21,len_min=3,len_max=8,alfabetico
+classicmodels,employees,extension,varchar(10),23,0,0.0,20,len_min=4,len_max=5,alfanumerico
+classicmodels,employees,email,varchar(100),23,0,0.0,22,len_min=25,len_max=31,email
+classicmodels,employees,officeCode,varchar(10),23,0,0.0,7,len_min=1,len_max=1,solo_digitos
+classicmodels,employees,reportsTo,int(11),23,1,4.35,6,1002,1621,
+classicmodels,employees,jobTitle,varchar(50),23,0,0.0,7,len_min=8,len_max=20,libre/mixto
+classicmodels,offices,officeCode,varchar(10),7,0,0.0,7,len_min=1,len_max=1,solo_digitos
+classicmodels,offices,city,varchar(50),7,0,0.0,7,len_min=3,len_max=13,alfabetico
+classicmodels,offices,phone,varchar(50),7,0,0.0,7,len_min=15,len_max=16,telefono_like
+classicmodels,offices,addressLine1,varchar(50),7,0,0.0,7,len_min=11,len_max=24,libre/mixto
+classicmodels,offices,addressLine2,varchar(50),7,2,28.57,5,len_min=7,len_max=9,libre/mixto
+classicmodels,offices,state,varchar(50),7,3,42.86,4,len_min=2,len_max=10,alfanumerico
+classicmodels,offices,country,varchar(50),7,0,0.0,5,len_min=2,len_max=9,alfabetico
+classicmodels,offices,postalCode,varchar(15),7,0,0.0,7,len_min=5,len_max=8,alfanumerico
+classicmodels,offices,territory,varchar(10),7,0,0.0,4,len_min=2,len_max=5,alfabetico
+classicmodels,orderdetails,orderNumber,int(11),2996,0,0.0,326,10100,10425,
+classicmodels,orderdetails,productCode,varchar(15),2996,0,0.0,109,len_min=8,len_max=9,libre/mixto
+classicmodels,orderdetails,quantityOrdered,int(11),2996,0,0.0,61,6,97,
+classicmodels,orderdetails,priceEach,"decimal(10,2)",2996,0,0.0,1573,len_min=5,len_max=6,telefono_like
+classicmodels,orderdetails,orderLineNumber,smallint(6),2996,0,0.0,18,1,18,
+classicmodels,orders,orderNumber,int(11),326,0,0.0,326,10100,10425,
+classicmodels,orders,orderDate,date,326,0,0.0,265,2003-01-06,2005-05-31,
+classicmodels,orders,requiredDate,date,326,0,0.0,264,2003-01-13,2005-06-11,
+classicmodels,orders,shippedDate,date,326,14,4.29,247,2003-01-10,2005-05-20,
+classicmodels,orders,status,varchar(15),326,0,0.0,6,len_min=7,len_max=10,alfabetico
+classicmodels,orders,comments,text,326,246,75.46,37,len_min=22,len_max=189,libre/mixto
+classicmodels,orders,customerNumber,int(11),326,0,0.0,98,103,496,
+classicmodels,payments,customerNumber,int(11),273,0,0.0,98,103,496,
+classicmodels,payments,checkNumber,varchar(50),273,0,0.0,273,len_min=7,len_max=11,alfanumerico
+classicmodels,payments,paymentDate,date,273,0,0.0,232,2003-01-16,2005-06-09,
+classicmodels,payments,amount,"decimal(10,2)",273,0,0.0,273,len_min=6,len_max=9,telefono_like
+classicmodels,productlines,productLine,varchar(50),7,0,0.0,7,len_min=5,len_max=16,alfabetico
+classicmodels,productlines,textDescription,varchar(4000),7,0,0.0,7,len_min=310,len_max=735,libre/mixto
+classicmodels,productlines,htmlDescription,mediumtext,7,7,100.0,0,,,
+classicmodels,productlines,image,mediumblob,7,7,100.0,0,,,
+classicmodels,products,productCode,varchar(15),110,0,0.0,110,len_min=8,len_max=9,libre/mixto
+classicmodels,products,productName,varchar(70),110,0,0.0,110,len_min=10,len_max=43,libre/mixto
+classicmodels,products,productLine,varchar(50),110,0,0.0,7,len_min=5,len_max=16,alfabetico
+classicmodels,products,productScale,varchar(10),110,0,0.0,8,len_min=4,len_max=5,libre/mixto
+classicmodels,products,productVendor,varchar(50),110,0,0.0,13,len_min=13,len_max=25,alfanumerico
+classicmodels,products,productDescription,text,110,0,0.0,95,len_min=28,len_max=497,libre/mixto
+classicmodels,products,quantityInStock,smallint(6),110,0,0.0,110,15,9997,
+classicmodels,products,buyPrice,"decimal(10,2)",110,0,0.0,108,len_min=5,len_max=6,telefono_like
+classicmodels,products,MSRP,"decimal(10,2)",110,0,0.0,108,len_min=5,len_max=6,telefono_like
+customerservice,cs_customer_calls,employeenumber,integer,108,0,0.0,30,len_min=1,len_max=2,solo_digitos
+customerservice,cs_customer_calls,customernumber,integer,108,0,0.0,54,len_min=3,len_max=3,solo_digitos
+customerservice,cs_customer_calls,productcode,character varying(15),108,0,0.0,47,len_min=8,len_max=9,libre/mixto
+customerservice,cs_customer_calls,text,character varying(200),108,0,0.0,108,len_min=34,len_max=79,alfabetico
+customerservice,cs_customer_calls,date,timestamp(6) without time zone,108,0,0.0,100,2003-02-19 00:00:00,2005-05-09 00:00:00,
+customerservice,cs_customer_products,customernumber,integer,101,0,0.0,75,len_min=3,len_max=3,solo_digitos
+customerservice,cs_customer_products,productcode,character varying(15),101,0,0.0,64,len_min=8,len_max=9,libre/mixto
+customerservice,cs_customers,customernumber,integer,122,0,0.0,122,len_min=3,len_max=3,solo_digitos
+customerservice,cs_customers,contactlastname,character varying(50),122,0,0.0,108,len_min=3,len_max=15,libre/mixto
+customerservice,cs_customers,contactfirstname,character varying(50),122,0,0.0,111,len_min=2,len_max=11,alfabetico
+customerservice,cs_customers,phone,character varying(50),122,0,0.0,121,len_min=8,len_max=18,telefono_like
+customerservice,cs_customers,addressline1,character varying(50),122,0,0.0,122,len_min=10,len_max=32,libre/mixto
+customerservice,cs_customers,addressline2,character varying(50),122,100,81.97,21,len_min=6,len_max=24,libre/mixto
+customerservice,cs_customers,city,character varying(50),122,0,0.0,96,len_min=3,len_max=17,libre/mixto
+customerservice,cs_customers,state,character varying(50),122,73,59.84,18,len_min=2,len_max=13,alfabetico
+customerservice,cs_customers,postalcode,character varying(15),122,7,5.74,94,len_min=1,len_max=9,alfanumerico
+customerservice,cs_customers,country,character varying(50),122,0,0.0,28,len_min=2,len_max=12,alfabetico
+customerservice,cs_employees,employeenumber,integer,30,0,0.0,30,len_min=1,len_max=2,solo_digitos
+customerservice,cs_employees,lastname,character varying(50),30,0,0.0,30,len_min=4,len_max=12,alfabetico
+customerservice,cs_employees,firstname,character varying(50),30,0,0.0,30,len_min=3,len_max=10,alfabetico
+customerservice,cs_employees,email,character varying(100),30,0,0.0,30,len_min=25,len_max=33,email
+customerservice,cs_products,productcode,character varying(15),110,0,0.0,110,len_min=8,len_max=9,libre/mixto
+customerservice,cs_products,productname,character varying(70),110,0,0.0,110,len_min=10,len_max=43,libre/mixto
+customerservice,cs_products,productscale,character varying(10),110,0,0.0,8,len_min=4,len_max=5,libre/mixto
+customerservice,cs_products,productvendor,character varying(50),110,0,0.0,13,len_min=13,len_max=25,alfanumerico
+customerservice,cs_products,productdescription,text,110,0,0.0,95,len_min=28,len_max=495,libre/mixto
