@@ -79,6 +79,22 @@ Los tres procesos se ejecutan en orden:
 
 La vista `staging_dw.vw_trazabilidad_capas` muestra cuántas filas pasó cada corrida por cada capa y `staging_dw.vw_reporte_transacciones_malas` lista el contenido de `stg_error_log`.
 
+### Tolerancia a fallos
+
+Cada capa lee lo que dejó persistido la anterior, así que una falla no obliga a empezar desde las fuentes:
+
+| Si falla… | Qué queda intacto | Cómo se retoma |
+|---|---|---|
+| El staging (capas 1 a 4) | La última corrida de staging exitosa: la fallida queda marcada `ERROR` y nunca se lee | Se vuelve a correr `etl_dw_staging.py` |
+| Dimensiones o hechos durante la transformación (capa 5) | El staging y el almacén completo de la carga anterior | Se vuelve a correr ese proceso; lee el mismo `stg_clean` sin tocar las fuentes |
+| Dimensiones o hechos durante el Load (capa 7) | El almacén completo de la carga anterior | Igual que el caso anterior |
+
+El último caso depende de que el Load sea **todo o nada**: la capa 7 lee `stg_loadready` y reemplaza todas las tablas del modelo (las seis dimensiones o los dos hechos) en **una sola transacción**. Si algo falla a mitad de camino, PostgreSQL deshace todos los `TRUNCATE` e `INSERT` del lote. Sin eso, una falla después de la tercera tabla dejaría unas tablas nuevas, otra vacía y el resto viejas, y el `TRUNCATE ... CASCADE` de una dimensión vaciaría además los hechos que la referencian.
+
+Un matiz: recargar las dimensiones regenera sus llaves subrogadas e invalida los hechos que las usaban, por lo que `CASCADE` vacía los hechos al confirmar la carga de dimensiones. Entre esa confirmación y la carga de hechos, las tablas de hechos están vacías; `run_all.py` corre las dos ramas seguidas.
+
+`tests/test_load_atomic.py` lo comprueba provocando una falla a mitad de un Load contra el almacén real y verificando que el conteo y el contenido (MD5) de cada tabla no cambian. Contra la implementación anterior, que cargaba tabla por tabla, la misma prueba deja `dim_oficina` con 1 fila de 7, `dim_estado_orden` vacía y `fact_ventas` sin sus 2.996 filas.
+
 ### Reglas de calidad de la capa 3
 
 | Regla | Clase | Acción |
@@ -122,6 +138,7 @@ Con los datos originales, los 4.335 registros quedan en `stg_clean` y `stg_error
 | [`queries/business_questions.sql`](queries/business_questions.sql) | Consultas de negocio sobre el almacén, equivalentes a las del dashboard |
 | [`tests/validate_against_sources.py`](tests/validate_against_sources.py) | Compara 9 totales del almacén contra las fuentes (monto, unidades, líneas, órdenes, llamadas, clientes, productos, oficinas, empleados) |
 | [`tests/test_dq_reject_path.py`](tests/test_dq_reject_path.py) | Arma un lote sintético con un defecto por regla y verifica que los bloqueantes se rechacen, que las advertencias pasen y que ningún registro sano se marque |
+| [`tests/test_load_atomic.py`](tests/test_load_atomic.py) | Provoca una falla a mitad del Load y verifica que el almacén quede exactamente como estaba |
 | [`tests/test_backup_restore.py`](tests/test_backup_restore.py) | Restaura los dos backups en una base temporal y compara conteos de tablas y vistas |
 | [`backup/dw_backup.sql`](backup/dw_backup.sql) | Backup del modelo dimensional y los data marts con todos los datos |
 

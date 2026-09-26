@@ -131,6 +131,53 @@ def read_clean(staging_run, source_table):
 
 
 # ============================================================
+# Layers 6 and 7: Load-Ready Publish and Load
+# ============================================================
+
+def publish_load_ready(run_id, model, targets):
+    """Layer 6: copy each target's rows from stg_transform to stg_loadready.
+
+    After this step nothing is left to transform: Load only has to copy.
+    """
+    counts = {}
+    for target in targets:
+        df = read_payload("stg_transform", run_id, objetivo=target)
+        insert("stg_loadready", [
+            {"run_id": run_id, "modelo_carga": model, "objetivo": target,
+             "nro_fila": i, "payload": p}
+            for i, p in enumerate(json_rows(df), 1)
+        ])
+        counts[target] = len(df)
+    return counts
+
+
+def read_load_ready(run_id, targets):
+    """Layer 7 input: the frames exactly as Load-Ready Publish left them."""
+    return {t: read_payload("stg_loadready", run_id, objetivo=t) for t in targets}
+
+
+def load_atomic(frames):
+    """Layer 7: replace every target table in ONE transaction.
+
+    Either all tables end up with the new rows or none of them change. If
+    anything fails halfway (a constraint, a lost connection), PostgreSQL
+    rolls back every TRUNCATE and INSERT of the batch, and the warehouse
+    keeps the previous complete load. Without this, a failure after the
+    third table would leave some tables new, one emptied and the rest old.
+
+    TRUNCATE is transactional in PostgreSQL, so it is undone on rollback
+    like any other statement. pandas reuses the open transaction when it
+    receives a connection that is already inside one, instead of
+    committing on its own.
+    """
+    with DW.begin() as con:
+        for target, df in frames.items():
+            con.execute(sa.text(f"TRUNCATE TABLE {target} RESTART IDENTITY CASCADE"))
+            df.to_sql(target, con, if_exists="append", index=False)
+    return sum(len(df) for df in frames.values())
+
+
+# ============================================================
 # Metadata repository logging
 # ============================================================
 

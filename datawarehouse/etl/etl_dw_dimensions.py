@@ -19,10 +19,10 @@ Usage:
 from datetime import date, timedelta
 
 import pandas as pd
-import sqlalchemy as sa
 
-from common import (DW, close_run, insert, json_rows, last_successful_staging_run,
-                    log_execution, open_run, read_clean, read_payload)
+from common import (close_run, insert, json_rows, last_successful_staging_run,
+                    load_atomic, log_execution, open_run, publish_load_ready,
+                    read_clean, read_load_ready)
 
 PROCESS = "etl_dw_dimensions"
 
@@ -197,20 +197,17 @@ def area_employee(run_id, staging_run):
 
 def publish_and_load(run_id):
     print("\n[Layer 6] Load-Ready Publish (DIMENSIONES)")
-    print("[Layer 7] Load")
-    total = 0
-    for target in LOAD_ORDER:
-        df = read_payload("stg_transform", run_id, objetivo=target)
-        insert("stg_loadready", [
-            {"run_id": run_id, "modelo_carga": "DIMENSIONES", "objetivo": target,
-             "nro_fila": i, "payload": p}
-            for i, p in enumerate(json_rows(df), 1)
-        ])
-        # Model tables are fully reloaded; history is kept in staging.
-        with DW.begin() as con:
-            con.execute(sa.text(f"TRUNCATE TABLE {target} RESTART IDENTITY CASCADE"))
-        df.to_sql(target, DW, if_exists="append", index=False)
-        total += len(df)
+    for target, n in publish_load_ready(run_id, "DIMENSIONES", LOAD_ORDER).items():
+        print(f"    {target:<18}{n:>6} rows")
+
+    # Load reads what Load-Ready left, and replaces the six dimensions in a
+    # single transaction: all or nothing. The model tables are fully
+    # reloaded each time; the history lives in staging, which is never
+    # truncated.
+    print("[Layer 7] Load (una sola transaccion)")
+    frames = read_load_ready(run_id, LOAD_ORDER)
+    total = load_atomic(frames)
+    for target, df in frames.items():
         print(f"    {target:<18}{len(df):>6} rows")
     return total
 

@@ -83,6 +83,9 @@ PIPELINE = [
     ("Test: data quality rejection path (synthetic data)",
      [PY, "datawarehouse/tests/test_dq_reject_path.py"]),
 
+    ("Test: load is all-or-nothing (forced failure)",
+     [PY, "datawarehouse/tests/test_load_atomic.py"]),
+
     # --- Deliverables ---
     ("Reports: Metabase dashboard",
      [PY, "reports/build_dashboard.py"]),
