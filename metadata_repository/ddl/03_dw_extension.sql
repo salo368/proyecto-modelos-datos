@@ -30,9 +30,21 @@ CREATE TABLE IF NOT EXISTS dw_object (
     scd_justificacion TEXT,                         -- why that SCD type was chosen
     row_count       INTEGER,
     loaded_at       TIMESTAMP NOT NULL DEFAULT now(),
-    CHECK (object_type IN ('FACT', 'DIMENSION', 'VIEW')),
-    CHECK (scd_type IS NULL OR scd_type IN ('TIPO_1', 'TIPO_2', 'TIPO_3'))
+    CONSTRAINT chk_dw_object_type CHECK (object_type IN ('FACT', 'DIMENSION', 'VIEW'))
 );
+
+-- Idempotent migration: CREATE TABLE IF NOT EXISTS is a no-op when the
+-- table already exists from an earlier version of this script, so a
+-- column added later here would silently never reach a deployment that
+-- was set up before it existed. ADD COLUMN IF NOT EXISTS fixes both a
+-- fresh install (no-op) and an upgrade (adds the missing column).
+ALTER TABLE dw_object ADD COLUMN IF NOT EXISTS scd_type          VARCHAR(10);
+ALTER TABLE dw_object ADD COLUMN IF NOT EXISTS scd_justificacion TEXT;
+
+ALTER TABLE dw_object DROP CONSTRAINT IF EXISTS dw_object_object_type_check;
+ALTER TABLE dw_object DROP CONSTRAINT IF EXISTS chk_dw_object_scd_type;
+ALTER TABLE dw_object ADD CONSTRAINT chk_dw_object_scd_type
+    CHECK (scd_type IS NULL OR scd_type IN ('TIPO_1', 'TIPO_2', 'TIPO_3'));
 
 -- Measures of each fact. additivity tells a BI tool whether the column
 -- can be summed across every dimension, only some, or none.
@@ -136,15 +148,35 @@ CREATE TABLE IF NOT EXISTS dq_rule (
     expression       TEXT NOT NULL,
     severity         VARCHAR(20) NOT NULL,
     resolution       TEXT NOT NULL,           -- what the ETL does when the rule fails
+    CONSTRAINT chk_dq_rule_severity CHECK (severity IN ('BLOQUEANTE', 'ADVERTENCIA', 'INFORMATIVA'))
+);
+
+-- Same idempotency issue as dw_object: these four columns and their
+-- CHECKs must be reachable even on a deployment created before they
+-- existed in this file.
+ALTER TABLE dq_rule ADD COLUMN IF NOT EXISTS criterio_dama VARCHAR(20);
+ALTER TABLE dq_rule ADD COLUMN IF NOT EXISTS clase_dq      VARCHAR(10);
+ALTER TABLE dq_rule ADD COLUMN IF NOT EXISTS capa          VARCHAR(20);
+
+ALTER TABLE dq_rule DROP CONSTRAINT IF EXISTS dq_rule_rule_type_check;
+ALTER TABLE dq_rule DROP CONSTRAINT IF EXISTS chk_dq_rule_type;
+ALTER TABLE dq_rule ADD CONSTRAINT chk_dq_rule_type
     CHECK (rule_type IN ('COMPLETITUD', 'UNICIDAD', 'INTEGRIDAD', 'RANGO',
-                         'FORMATO', 'COHERENCIA', 'CONFORMIDAD', 'FRESCURA')),
+                         'FORMATO', 'COHERENCIA', 'CONFORMIDAD', 'FRESCURA'));
+
+ALTER TABLE dq_rule DROP CONSTRAINT IF EXISTS chk_dq_rule_criterio_dama;
+ALTER TABLE dq_rule ADD CONSTRAINT chk_dq_rule_criterio_dama
     CHECK (criterio_dama IS NULL OR criterio_dama IN
            ('EXACTITUD', 'EXHAUSTIVIDAD', 'CONSISTENCIA', 'OPORTUNIDAD',
-            'RELEVANCIA', 'CONFIANZA')),
-    CHECK (clase_dq IS NULL OR clase_dq IN ('TECNICA', 'NEGOCIO')),
-    CHECK (capa IS NULL OR capa IN ('DATA_QUALITY', 'TRANSFORMATION', 'MONITOREO')),
-    CHECK (severity  IN ('BLOQUEANTE', 'ADVERTENCIA', 'INFORMATIVA'))
-);
+            'RELEVANCIA', 'CONFIANZA'));
+
+ALTER TABLE dq_rule DROP CONSTRAINT IF EXISTS chk_dq_rule_clase_dq;
+ALTER TABLE dq_rule ADD CONSTRAINT chk_dq_rule_clase_dq
+    CHECK (clase_dq IS NULL OR clase_dq IN ('TECNICA', 'NEGOCIO'));
+
+ALTER TABLE dq_rule DROP CONSTRAINT IF EXISTS chk_dq_rule_capa;
+ALTER TABLE dq_rule ADD CONSTRAINT chk_dq_rule_capa
+    CHECK (capa IS NULL OR capa IN ('DATA_QUALITY', 'TRANSFORMATION', 'MONITOREO'));
 
 CREATE TABLE IF NOT EXISTS dq_result (
     dq_result_id     SERIAL PRIMARY KEY,
