@@ -1,68 +1,28 @@
 """
-Warehouse ETL, layers 1-4: Extract, Initial Staging, Data Quality and
-Clean Staging.
+Layer 3 - Data Quality.
 
-    1 Extract/Publish   one extraction model per source (EXTRACTION_MODELS)
-    2 Initial Staging   one table per source + column profile (stg_perfil)
-    3 Data Quality      technical and business rules -> stg_error_log
-    4 Clean Staging     stg_clean (accepted) / stg_rejected (rejected)
+Technical checks (missing or invalid data) and business checks
+(referential integrity, inaccurate data, inconsistent definitions) on
+what landed in Initial Staging. Every failure becomes a row of the
+bad-transactions log, with the action the rule dictates:
 
-All 13 source tables are read exactly once per load, including those
-the current model does not use (payments, cs_customer_products). The
-dimension and fact processes read only from stg_clean.
+    RECHAZADO    the record cannot continue; layer 4 sends it to stg_rejected
+    ADVERTENCIA  the record continues; the anomaly is only logged
 
-Usage:
-    python datawarehouse/etl/etl_dw_staging.py
+    Input   stg_initial_* (layer 2)
+    Output  stg_error_log
+    Reader  read_failures(run_id), used by layer 4
 """
 from collections import defaultdict
 
 import pandas as pd
 import sqlalchemy as sa
 
-from common import (CLASSICMODELS, CUSTOMERSERVICE, DW, META, close_run,
-                    insert, json_rows, log_execution, open_run)
+from common import META, STAGING, insert
+from layer2_initial_staging import read_initial
 
-PROCESS = "etl_dw_staging"
-
-# ============================================================
-# Layer 1 - Extract/Publish: one logical extraction model per source
-# ============================================================
-EXTRACTION_MODELS = {
-    "classicmodels": {
-        "engine": CLASSICMODELS,
-        "initial_table": "stg_initial_classicmodels",
-        "tables": ["customers", "employees", "offices", "products",
-                   "productlines", "orders", "orderdetails", "payments"],
-    },
-    "customerservice": {
-        "engine": CUSTOMERSERVICE,
-        "initial_table": "stg_initial_customerservice",
-        "tables": ["cs_customers", "cs_products", "cs_employees",
-                   "cs_customer_calls", "cs_customer_products"],
-    },
-}
-
-# Columns that identify a record in the error log. cs_customer_calls
-# has no primary key in its source, so its references plus the date
-# are used instead.
-RECORD_KEYS = {
-    "customers": ["customerNumber"], "employees": ["employeeNumber"],
-    "offices": ["officeCode"], "products": ["productCode"],
-    "productlines": ["productLine"], "orders": ["orderNumber"],
-    "orderdetails": ["orderNumber", "productCode"],
-    "payments": ["customerNumber", "checkNumber"],
-    "cs_customers": ["customernumber"], "cs_products": ["productcode"],
-    "cs_employees": ["employeenumber"],
-    "cs_customer_calls": ["customernumber", "productcode", "employeenumber", "date"],
-    "cs_customer_products": ["customernumber", "productcode"],
-}
-
-# ============================================================
-# Layer 3 quality rules: rule -> (dq class, category, action).
-#
-# RECHAZADO sends the record to stg_rejected; ADVERTENCIA lets it
-# through and only logs it. Names match dq_rule.rule_name.
-# ============================================================
+# Rule -> (dq class, category, action). Names match dq_rule.rule_name
+# in the metadata repository.
 RULES = {
     # --- technical checks ---
     "campos_obligatorios":    ("TECNICA", "CAMPO_FALTANTE",   "RECHAZADO"),
@@ -81,6 +41,21 @@ RULES = {
                               ("NEGOCIO", "DEFINICION_INCONSISTENTE", "ADVERTENCIA"),
 }
 
+# Columns that identify a record in the error log. cs_customer_calls
+# has no primary key in its source, so its references plus the date
+# are used instead.
+RECORD_KEYS = {
+    "customers": ["customerNumber"], "employees": ["employeeNumber"],
+    "offices": ["officeCode"], "products": ["productCode"],
+    "productlines": ["productLine"], "orders": ["orderNumber"],
+    "orderdetails": ["orderNumber", "productCode"],
+    "payments": ["customerNumber", "checkNumber"],
+    "cs_customers": ["customernumber"], "cs_products": ["productcode"],
+    "cs_employees": ["employeenumber"],
+    "cs_customer_calls": ["customernumber", "productcode", "employeenumber", "date"],
+    "cs_customer_products": ["customernumber", "productcode"],
+}
+
 DATE_COLUMNS = {
     "orders": ["orderDate", "requiredDate", "shippedDate"],
     "payments": ["paymentDate"],
@@ -93,83 +68,6 @@ NUMERIC_COLUMNS = {
     "payments": ["amount"],
 }
 
-
-# ============================================================
-# Layers 1 and 2 - Extract and Initial Staging
-# ============================================================
-
-def extract(run_id):
-    print("\n[Layer 1] Extract/Publish")
-    print("[Layer 2] Initial Staging")
-    total = 0
-    for source, model in EXTRACTION_MODELS.items():
-        print(f"    Extraction model: {source}  ->  staging_dw.{model['initial_table']}")
-        for table in model["tables"]:
-            df = pd.read_sql(f"SELECT * FROM {table}", model["engine"])
-            insert(model["initial_table"], [
-                {"run_id": run_id, "tabla_origen": table,
-                 "nro_fila": i, "payload": p}
-                for i, p in enumerate(json_rows(df), 1)
-            ])
-            total += len(df)
-            print(f"      {table:<22}{len(df):>6} rows")
-    print(f"    {'TOTAL in Initial Staging':<28}{total:>6} rows")
-    return total
-
-
-def read_initial(run_id):
-    """Re-read what landed; later layers start from here, not from the sources.
-
-    Returns {table: (source, DataFrame)} with a _nro_fila column.
-    """
-    data = {}
-    for source, model in EXTRACTION_MODELS.items():
-        with DW.connect() as con:
-            rows = con.execute(sa.text(
-                f"SELECT tabla_origen, nro_fila, payload "
-                f"FROM staging_dw.{model['initial_table']} "
-                f"WHERE run_id = :r ORDER BY tabla_origen, nro_fila"),
-                {"r": run_id}).fetchall()
-        by_table = defaultdict(list)
-        for table, row_number, payload in rows:
-            by_table[table].append({"_nro_fila": row_number, **payload})
-        for table, records in by_table.items():
-            data[table] = (source, pd.DataFrame(records))
-    return data
-
-
-def profile(run_id, data):
-    """Nulls, distinct values, min and max of every landed column."""
-    print("\n    Profiling Initial Staging")
-    records = []
-    for table, (source, df) in data.items():
-        for col in df.columns:
-            if col == "_nro_fila":
-                continue
-            s = df[col]
-            non_null = s.dropna()
-            try:
-                minimum = str(non_null.min()) if len(non_null) else None
-                maximum = str(non_null.max()) if len(non_null) else None
-            except TypeError:           # mixed-type column
-                minimum = maximum = None
-            records.append({
-                "run_id": run_id, "fuente": source, "tabla_origen": table,
-                "columna": col, "filas": len(s), "nulos": int(s.isna().sum()),
-                # Native float: psycopg2 cannot adapt numpy.float64.
-                "pct_nulos": float(round(100 * s.isna().mean(), 2)) if len(s) else 0.0,
-                "distintos": int(s.nunique()),
-                "minimo": (minimum or "")[:200] or None,
-                "maximo": (maximum or "")[:200] or None,
-            })
-    insert("stg_perfil", records)
-    with_nulls = sum(1 for r in records if r["nulos"] > 0)
-    print(f"      {len(records)} columns profiled, {with_nulls} with nulls")
-
-
-# ============================================================
-# Layer 3 - Data Quality
-# ============================================================
 
 def required_columns():
     """NOT NULL columns per table, read from the metadata repository.
@@ -389,8 +287,9 @@ def business_checks(data, log):
             "consistencia_entre_fuentes_producto")
 
 
-def data_quality(run_id, data):
+def run(run_id):
     print("\n[Layer 3] Data Quality")
+    data = read_initial(run_id)
     log = QualityLog()
     technical_checks(data, log)
     business_checks(data, log)
@@ -405,69 +304,11 @@ def data_quality(run_id, data):
     return log
 
 
-# ============================================================
-# Layer 4 - Clean Staging
-# ============================================================
-
-def rejection_reasons(log):
-    """{(table, row number): [rules]} for records that must be rejected.
-
-    Only RECHAZADO failures remove a record; ADVERTENCIA only logs it.
-    """
-    reasons = defaultdict(list)
-    for f in log.failures:
-        if f["accion"] == "RECHAZADO":
-            reasons[(f["tabla_origen"], f["nro_fila"])].append(f["regla"])
-    return reasons
-
-
-def split_clean_rejected(run_id, data, log):
-    """Write accepted rows to stg_clean and rejected rows to stg_rejected."""
-    print("\n[Layer 4] Clean Staging")
-    reasons = rejection_reasons(log)
-
-    total_clean = total_rejected = 0
-    for table, (source, df) in data.items():
-        clean, rejected = [], []
-        body = df.drop(columns=["_nro_fila"])
-        for payload, row_number in zip(json_rows(body), df["_nro_fila"]):
-            key = (table, int(row_number))
-            base = {"run_id": run_id, "fuente": source, "tabla_origen": table,
-                    "nro_fila": int(row_number), "payload": payload}
-            if key in reasons:
-                rejected.append({**base, "motivos": ", ".join(sorted(set(reasons[key])))})
-            else:
-                clean.append(base)
-        insert("stg_clean", clean)
-        insert("stg_rejected", rejected)
-        total_clean += len(clean)
-        total_rejected += len(rejected)
-        print(f"      {table:<22} clean {len(clean):>5}   rejected {len(rejected):>3}")
-    print(f"    {'TOTAL':<22} clean {total_clean:>5}   rejected {total_rejected:>3}")
-    return total_clean, total_rejected
-
-
-if __name__ == "__main__":
-    run_id = open_run("staging")
-    print(f"Warehouse ETL, staging (layers 1-4) - run_id={run_id}")
-    try:
-        rows_read = extract(run_id)
-        data = read_initial(run_id)
-        profile(run_id, data)
-        log = data_quality(run_id, data)
-        n_clean, n_rejected = split_clean_rejected(run_id, data, log)
-    except Exception as e:
-        close_run(run_id, "ERROR")
-        log_execution(PROCESS, "", "", run_id, 0, 0, 0, "ERROR", str(e)[:500])
-        raise
-    close_run(run_id, "OK")
-    log_execution(
-        PROCESS,
-        "Capas 1 a 4: extrae las 13 tablas de las dos fuentes una sola vez, "
-        "las perfila, evalua calidad tecnica y de negocio, y separa "
-        "fisicamente limpios de rechazados.",
-        "classicmodels (MySQL), customerservice (PostgreSQL)",
-        run_id, rows_read, n_clean, n_rejected, "OK",
-        quality_results=[(r, log.evaluated[r], log.failed[r]) for r in RULES],
-    )
-    print(f"\nStaging done. Read {rows_read}, clean {n_clean}, rejected {n_rejected}.")
+def read_failures(run_id):
+    """Failures Data Quality logged for a run, as dicts."""
+    with STAGING.connect() as con:
+        rows = con.execute(sa.text(
+            "SELECT tabla_origen, nro_fila, regla, accion "
+            "FROM staging_dw.stg_error_log WHERE run_id = :r"),
+            {"r": run_id}).mappings().all()
+    return [dict(r) for r in rows]

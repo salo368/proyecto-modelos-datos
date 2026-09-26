@@ -14,6 +14,7 @@ TARGETS = [
     ("classicmodels (MySQL)",        "CLASSICMODELS_URL"),
     ("customerservice (PostgreSQL)", "CUSTOMERSERVICE_URL"),
     ("metadata repository",          "METADATA_URL"),
+    ("pipeline staging area",        "STAGING_URL"),
     ("data warehouse",               "DW_URL"),
 ]
 

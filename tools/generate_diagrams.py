@@ -6,7 +6,7 @@ Generate the physical diagrams in docs/img from the live databases.
     metadata_repository_erd    metadata repository, all tables
     metadata_core_erd          metadata repository, core tables only
     dw_star_schema             data warehouse star schema
-    etl_pipeline               ETL layers with the row counts of the last load
+    etl_pipeline               pipeline layers and warehouse, with the row counts of the last load
 
 Each diagram is written as Graphviz source (.dot) and rendered to .png
 with the local `dot` binary or, if it is not installed, with the
@@ -98,11 +98,19 @@ def erd_dot(model, title):
 
 
 def pipeline_dot():
-    """ETL layers of the warehouse with the counts of the last successful load."""
+    """Pipeline layers and warehouse, with the counts of the last successful load.
+
+    The layer counts come from the staging database; what was loaded
+    comes from the warehouse.
+    """
+    staging = sa.create_engine(os.getenv("STAGING_URL"))
     dw = sa.create_engine(os.getenv("DW_URL"))
-    with dw.connect() as c:
+    with staging.connect() as c, dw.connect() as w:
         def n(sql):
             return c.execute(sa.text(sql)).scalar() or 0
+
+        def nw(sql):
+            return w.execute(sa.text(sql)).scalar() or 0
 
         def last_run(process):
             return n(f"SELECT MAX(run_id) FROM staging_dw.etl_run "
@@ -122,12 +130,12 @@ def pipeline_dot():
         tr_f = n(f"SELECT COUNT(*) FROM staging_dw.stg_transform WHERE run_id={rf}")
         lr_d = n(f"SELECT COUNT(*) FROM staging_dw.stg_loadready WHERE run_id={rd}")
         lr_f = n(f"SELECT COUNT(*) FROM staging_dw.stg_loadready WHERE run_id={rf}")
-        dims = n("SELECT (SELECT COUNT(*) FROM dim_tiempo)+(SELECT COUNT(*) FROM dim_cliente)"
+        dims = nw("SELECT (SELECT COUNT(*) FROM dim_tiempo)+(SELECT COUNT(*) FROM dim_cliente)"
                  "+(SELECT COUNT(*) FROM dim_producto)+(SELECT COUNT(*) FROM dim_empleado)"
                  "+(SELECT COUNT(*) FROM dim_oficina)+(SELECT COUNT(*) FROM dim_estado_orden)")
-        facts = n("SELECT (SELECT COUNT(*) FROM fact_ventas)+(SELECT COUNT(*) FROM fact_llamadas_servicio)")
-        dm1 = n("SELECT COUNT(*) FROM dm.vw_interaccion_cliente_producto")
-        dm2 = n("SELECT COUNT(*) FROM dm.vw_ventas_mensuales_linea")
+        facts = nw("SELECT (SELECT COUNT(*) FROM fact_ventas)+(SELECT COUNT(*) FROM fact_llamadas_servicio)")
+        dm1 = nw("SELECT COUNT(*) FROM dm.vw_interaccion_cliente_producto")
+        dm2 = nw("SELECT COUNT(*) FROM dm.vw_ventas_mensuales_linea")
 
     def node(name, title, detail, color, shape="box3d"):
         return (f'  {name} [shape={shape}, style="filled", fillcolor="{color}", '
@@ -135,56 +143,60 @@ def pipeline_dot():
 
     GREY, BLUE, GREEN, RED, AMBER, MAUVE = ("#e8ecf1", "#dbe8f5", "#e2f0e4",
                                             "#f6d4d4", "#fbeccd", "#ece3f3")
+    def layer(n, label, *nodes):
+        return ([f'    subgraph cluster_{n} {{ label="{label}"; style=dashed; color="#8a96a3";']
+                + ["  " + x for x in nodes] + ["    }"])
+
     lines = [
         "digraph pipeline {",
         '  graph [rankdir=LR, nodesep=0.35, ranksep=0.55, fontname="Helvetica", '
-        'label="Pipeline ETL del almacen (conteos de la ultima carga)", labelloc=t, fontsize=14];',
+        'label="Pipeline y almacen de datos (conteos de la ultima carga)", labelloc=t, fontsize=14];',
         '  node [fontname="Helvetica", fontsize=11];',
         '  edge [color="#5d6b7d", arrowsize=0.7];',
         "",
-        '  subgraph cluster_1 { label="1  Extract/Publish"; style=dashed; color="#8a96a3";',
-        node("ext_cm", "Modelo de extraccion", "classicmodels (MySQL)", GREY, "box"),
-        node("ext_cs", "Modelo de extraccion", "customerservice (PostgreSQL)", GREY, "box"),
+        '  subgraph cluster_pipeline { label=<<B>Pipeline</B> (base staging, capas 1 a 6)>; '
+        'style="rounded,filled"; fillcolor="#fafbfc"; color="#5d6b7d";',
+        *layer(1, "1  Extract/Publish",
+               node("ext_cm", "Modelo de extraccion", "classicmodels (MySQL)", GREY, "box"),
+               node("ext_cs", "Modelo de extraccion", "customerservice (PostgreSQL)", GREY, "box")),
+        *layer(2, "2  Initial Staging",
+               node("ini_cm", "stg_initial_classicmodels", f"{tab_cm} tablas, {ini_cm} filas", BLUE),
+               node("ini_cs", "stg_initial_customerservice", f"{tab_cs} tablas, {ini_cs} filas", GREEN),
+               node("profile", "stg_perfil", f"{profiled} columnas perfiladas", GREY, "note")),
+        *layer(3, "3  Data Quality",
+               node("dq", "Reglas tecnicas y de negocio", "11 reglas por registro", AMBER, "box"),
+               node("errlog", "stg_error_log", f"{errors} entradas ({warnings} advertencias)", AMBER, "note")),
+        *layer(4, "4  Clean Staging",
+               node("clean", "stg_clean", f"{clean} filas limpias", GREY),
+               node("rej", "stg_rejected", f"{rejected} filas rechazadas", RED)),
+        *layer(5, "5  Transformation",
+               node("tr_d", "Conformar dimensiones", f"6 areas, {tr_d} filas", GREY, "box"),
+               node("tr_f", "Conformar hechos", f"Ventas y Servicio, {tr_f} filas", GREY, "box")),
+        *layer(6, "6  Load-Ready Publish",
+               node("lr_d", "stg_loadready", f"DIMENSIONES, {lr_d} filas", GREY),
+               node("lr_f", "stg_loadready", f"HECHOS, {lr_f} filas", GREY)),
         "  }",
-        '  subgraph cluster_2 { label="2  Initial Staging"; style=dashed; color="#8a96a3";',
-        node("ini_cm", "stg_initial_classicmodels", f"{tab_cm} tablas, {ini_cm} filas", BLUE),
-        node("ini_cs", "stg_initial_customerservice", f"{tab_cs} tablas, {ini_cs} filas", GREEN),
-        node("profile", "stg_perfil", f"{profiled} columnas perfiladas", GREY, "note"),
-        "  }",
-        '  subgraph cluster_3 { label="3  Data Quality"; style=dashed; color="#8a96a3";',
-        node("dq", "Reglas tecnicas y de negocio", "11 reglas por registro", AMBER, "box"),
-        node("errlog", "stg_error_log", f"{errors} entradas ({warnings} advertencias)", AMBER, "note"),
-        "  }",
-        '  subgraph cluster_4 { label="4  Clean Staging"; style=dashed; color="#8a96a3";',
-        node("clean", "stg_clean", f"{clean} filas limpias", GREY),
-        node("rej", "stg_rejected", f"{rejected} filas rechazadas", RED),
-        "  }",
-        '  subgraph cluster_5 { label="5  Transformation"; style=dashed; color="#8a96a3";',
-        node("tr_d", "Conformar dimensiones", f"6 areas, {tr_d} filas", GREY, "box"),
-        node("tr_f", "Conformar hechos", f"Ventas y Servicio, {tr_f} filas", GREY, "box"),
-        "  }",
-        '  subgraph cluster_6 { label="6  Load-Ready Publish"; style=dashed; color="#8a96a3";',
-        node("lr_d", "stg_loadready", f"DIMENSIONES, {lr_d} filas", GREY),
-        node("lr_f", "stg_loadready", f"HECHOS, {lr_f} filas", GREY),
-        "  }",
-        '  subgraph cluster_7 { label="7  Load"; style=dashed; color="#8a96a3";',
-        node("dims", "dim_*", f"6 dimensiones, {dims} filas", GREEN, "cylinder"),
-        node("facts", "fact_*", f"2 hechos, {facts} filas", BLUE, "cylinder"),
-        "  }",
-        '  subgraph cluster_8 { label="Data marts (schema dm)"; style=dashed; color="#8a96a3";',
-        node("dm1", "dm.vw_interaccion_cliente_producto", f"{dm1} filas", MAUVE, "cylinder"),
-        node("dm2", "dm.vw_ventas_mensuales_linea", f"{dm2} filas", MAUVE, "cylinder"),
+        "",
+        '  subgraph cluster_dw { label=<<B>Almacen de datos</B> (base dw)>; '
+        'style="rounded,filled"; fillcolor="#fdfaf3"; color="#b7862b";',
+        *layer("edw", "EDW (schema public)",
+               node("dims", "dim_*", f"6 dimensiones, {dims} filas", GREEN, "cylinder"),
+               node("facts", "fact_*", f"2 hechos, {facts} filas", BLUE, "cylinder")),
+        *layer("dm", "Data marts (schema dm)",
+               node("dm1", "dm.vw_interaccion_cliente_producto", f"{dm1} filas", MAUVE, "cylinder"),
+               node("dm2", "dm.vw_ventas_mensuales_linea", f"{dm2} filas", MAUVE, "cylinder")),
         "  }",
         "",
         "  ext_cm -> ini_cm; ext_cs -> ini_cs;",
         "  ini_cm -> profile [style=dotted]; ini_cs -> profile [style=dotted];",
         "  ini_cm -> dq; ini_cs -> dq;",
         "  dq -> errlog [style=dotted];",
-        "  dq -> clean; dq -> rej [color=\"#c0392b\"];",
+        '  dq -> clean; dq -> rej [color="#c0392b"];',
         "  clean -> tr_d; clean -> tr_f;",
         "  tr_d -> lr_d; tr_f -> lr_f;",
-        "  lr_d -> dims; lr_f -> facts;",
-        "  dims -> tr_f [style=dashed, label=\"lookup\", fontsize=9];",
+        '  lr_d -> dims [penwidth=2, label="7 Load", fontsize=10];',
+        '  lr_f -> facts [penwidth=2, label="7 Load", fontsize=10];',
+        '  dims -> tr_f [style=dashed, label="lookup", fontsize=9];',
         "  facts -> dm1; dims -> dm1; facts -> dm2; dims -> dm2;",
         "}",
     ]

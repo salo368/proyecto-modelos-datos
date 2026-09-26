@@ -45,11 +45,12 @@ Al terminar:
 |---|---|---|
 | Metabase (reportes) | http://localhost:3000 | `grupo@javeriana.edu.co` / `Javeriana2026!` |
 | Almacén de datos | `localhost:5434`, base `dw` | `postgres` / `javeriana` |
+| Staging del pipeline | `localhost:5434`, base `staging` | `postgres` / `javeriana` |
 | Repositorio de metadatos | `localhost:5434`, base `metadata` | `postgres` / `javeriana` |
 | classicmodels | `localhost:3307` | `root` / `javeriana` |
 | customerservice | `localhost:5433`, base `customerservice` | `postgres` / `javeriana` |
 
-El almacén y el repositorio de metadatos son dos bases separadas dentro de la misma instancia de PostgreSQL. [`tools/check_connections.py`](tools/check_connections.py) verifica que las cuatro cadenas del `.env` respondan.
+El almacén, el staging del pipeline y el repositorio de metadatos son tres bases separadas dentro de la misma instancia de PostgreSQL. [`tools/check_connections.py`](tools/check_connections.py) verifica que las cinco cadenas del `.env` respondan.
 
 ## Qué hace el pipeline
 
@@ -59,13 +60,14 @@ El almacén y el repositorio de metadatos son dos bases separadas dentro de la m
 |---|---|---|
 | 1–4 | Perfilamiento de las fuentes | Metadatos técnicos y perfil por columna desde los dumps, reporte de columnas y llaves, integridad referencial y correspondencia entre fuentes, descubrimiento de relaciones no declaradas |
 | 5–11 | Repositorio de metadatos | Esquema base y de staging, ETL de metadatos técnicos, glosario de negocio y linaje semántico, extensión del almacén, reglas de calidad, extensión de uso |
-| 12–17 | Almacén de datos | Modelo estrella, capas de staging y data marts; ETL de staging (capas 1–4), de dimensiones y de hechos (capas 5–7) |
-| 18–19 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
-| 20–22 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad y Load todo-o-nada ante una falla forzada |
-| 23 | Reportes | Dashboard de Metabase |
-| 24–26 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
-| 27 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
-| 28 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
+| 12–13 | Almacén de datos | Tablas del EDW y vistas de los data marts en la base `dw` |
+| 14–18 | Pipeline | Base `staging` y sus tablas; procesos de staging (capas 1–4), dimensiones y hechos (capas 5–7) |
+| 19–20 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
+| 21–23 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad y Load todo-o-nada ante una falla forzada |
+| 24 | Reportes | Dashboard de Metabase |
+| 25–27 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
+| 28 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
+| 29 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
 
 Antes de sacar conclusiones de los dashboards, lea el [reporte de calidad por etapa](docs/data_quality_report.md): dice qué parte de los datos es verificable y qué decisiones recortan la base de cada análisis.
 
@@ -77,27 +79,33 @@ flowchart LR
     CS[(customerservice<br/>PostgreSQL)] --> P
     CM --> MR[(metadata<br/>repositorio de metadatos)]
     CS --> MR
-    CM --> ETL[datawarehouse/etl<br/>7 capas]
+    CM --> ETL[pipeline/<br/>capas 1 a 6<br/>base staging]
     CS --> ETL
-    ETL --> DW[(dw<br/>almacén)]
+    subgraph ALM[datawarehouse/ · base dw]
+        DW[(EDW<br/>modelo estrella)] --> DM[(data marts<br/>dm)]
+    end
+    ETL -- capa 7 Load --> DW
     ETL -. ejecuciones y calidad .-> MR
     DW -. catálogo, linaje y uso .-> MR
-    DW --> MB[Metabase]
+    DM --> MB[Metabase]
 ```
 
 ## Estructura del repositorio
 
 ```
 ├── run_all.py                  Orquestador del proyecto completo
-├── docker-compose.yml          MySQL, PostgreSQL (fuente), PostgreSQL (metadata + dw) y Metabase
-├── docker/init-dw.sql          Crea la base 'dw' junto a 'metadata'
+├── docker-compose.yml          MySQL, PostgreSQL (fuente), PostgreSQL (metadata + staging + dw) y Metabase
+├── docker/init-dw.sql          Crea las bases 'dw' y 'staging' junto a 'metadata'
 ├── .env.example                Cadenas de conexión del stack local
 ├── requirements.txt            Dependencias de Python del pipeline
 ├── sources/                    Dumps originales de las dos fuentes
 ├── profiling/                  Descubrimiento y perfilamiento de las fuentes      → profiling/README.md
 ├── metadata_repository/        Repositorio de metadatos: DDL, seeds, ETL, consultas, backup
 │                                                                                  → metadata_repository/README.md
-├── datawarehouse/              Almacén: DDL, ETL, consultas, pruebas, backup      → datawarehouse/README.md
+├── pipeline/                   Pipeline ETL: las 7 capas de Giordano, base staging → pipeline/README.md
+├── datawarehouse/              Almacén de datos, base dw                         → datawarehouse/README.md
+│   ├── edw/                    Almacén empresarial (modelo estrella), schema public
+│   └── data_marts/             Data marts, schema dm
 ├── reports/                    Dashboard de Metabase                              → reports/README.md
 ├── tools/                      Utilidades compartidas (ver abajo)
 └── docs/
@@ -109,9 +117,10 @@ flowchart LR
 | Utilidad | Uso |
 |---|---|
 | [`tools/run_sql.py`](tools/run_sql.py) | Ejecuta un archivo `.sql` contra la base indicada por una variable del `.env` (por defecto `DW_URL`) |
-| [`tools/check_connections.py`](tools/check_connections.py) | Verifica las cuatro conexiones del `.env` |
+| [`tools/check_connections.py`](tools/check_connections.py) | Verifica las cinco conexiones del `.env` |
+| [`tools/create_database.py`](tools/create_database.py) | Crea la base de una cadena del `.env` si no existe; `run_all.py` la usa para `staging` en volúmenes creados antes de esa base |
 | [`tools/generate_backup.py`](tools/generate_backup.py) | Genera el backup SQL del almacén (`dw`) o del repositorio (`metadata`) |
-| [`tools/generate_quality_report.py`](tools/generate_quality_report.py) | Genera [`docs/data_quality_report.md`](docs/data_quality_report.md) a partir de lo que cada capa dejó en `staging_dw` y del linaje del repositorio |
+| [`tools/generate_quality_report.py`](tools/generate_quality_report.py) | Genera [`docs/data_quality_report.md`](docs/data_quality_report.md) a partir de lo que cada capa del pipeline dejó en la base `staging`, del almacén y del linaje del repositorio |
 | [`tools/generate_diagrams.py`](tools/generate_diagrams.py) | Genera los diagramas de `docs/img/` introspeccionando las bases; renderiza con Graphviz local o con la imagen Docker `nshine/dot` |
 
 ## Convención de idioma
@@ -129,20 +138,20 @@ flowchart LR
 | 1 | Metadatos de negocio y linaje semántico | `metadata_repository/seeds/business_metadata.sql` |
 | 1 | Las seis consultas | `metadata_repository/queries/required_questions.sql` |
 | 1 | Diagrama físico del repositorio | `docs/img/metadata_core_erd.png` |
-| 2 | Hecho diseñado y diseño físico del almacén | [`datawarehouse/`](datawarehouse/README.md): `ddl/01_star_schema.sql`, `docs/img/dw_star_schema.png` |
-| 2 | Construcción del almacén y la base dimensional | `datawarehouse/ddl/`, data marts en `ddl/03_data_marts.sql` |
+| 2 | Hecho diseñado y diseño físico del almacén | [`datawarehouse/edw/`](datawarehouse/edw/README.md): `star_schema.sql`, `docs/img/dw_star_schema.png` |
+| 2 | Construcción del almacén y la base dimensional | [`datawarehouse/edw/`](datawarehouse/edw/README.md) y [`datawarehouse/data_marts/`](datawarehouse/data_marts/README.md) |
 | 2 | Metadatos del almacén y diagrama físico del repositorio completo | `metadata_repository/ddl/03_dw_extension.sql`, `04_usage_extension.sql`, `docs/img/metadata_repository_erd.png` |
-| 2 | Procesos ETL y problemas de calidad resueltos | `datawarehouse/etl/`, `metadata_repository/seeds/dq_rules.sql`, `docs/img/etl_pipeline.png` |
+| 2 | Procesos ETL y problemas de calidad resueltos | [`pipeline/`](pipeline/README.md), `metadata_repository/seeds/dq_rules.sql`, `docs/img/etl_pipeline.png`, [`docs/data_quality_report.md`](docs/data_quality_report.md) |
 | 2 | Reportes conectados al almacén | [`reports/`](reports/README.md) |
-| 1 y 2 | Backups | `metadata_repository/backup/metadata_repo_backup.sql`, `datawarehouse/backup/dw_backup.sql` |
+| 1 y 2 | Backups | `metadata_repository/backup/metadata_repo_backup.sql`, `datawarehouse/edw/backup/dw_backup.sql` |
 
 ## Herramientas
 
 | Componente | Herramienta |
 |---|---|
 | Fuentes | MySQL 8.0 y PostgreSQL 16 en Docker |
-| Repositorio de metadatos y almacén | PostgreSQL 16 en Docker |
-| ETL, perfilamiento, pruebas y backups | Python 3.11, SQLAlchemy 2, pandas |
+| Repositorio de metadatos, staging del pipeline y almacén | PostgreSQL 16 en Docker |
+| Pipeline, perfilamiento, pruebas y backups | Python 3.11, SQLAlchemy 2, pandas |
 | Reportes HTML de perfilamiento | ydata-profiling |
 | Reportes | Metabase (open source) en Docker |
 | Diagramas | Graphviz |

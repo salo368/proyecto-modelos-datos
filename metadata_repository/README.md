@@ -13,7 +13,7 @@ Base PostgreSQL `metadata` que describe las dos fuentes, el glosario de negocio,
 | Linaje semántico | `column_business_mapping` (columna técnica ↔ atributo de negocio) | `seeds/business_metadata.sql` |
 | Técnicos del almacén | `dw_object`, `dw_measure`, `dw_attribute` | `etl/etl_dw_metadata.py` |
 | Linaje fuente → almacén | `dw_lineage` | `etl/etl_dw_metadata.py` |
-| Procesos | `etl_process`, `etl_execution` | Cada corrida del ETL del almacén (`datawarehouse/etl/common.py`) |
+| Procesos | `etl_process`, `etl_execution` | Cada corrida del pipeline que carga el almacén (`pipeline/common.py`) |
 | Calidad | `dq_rule` (catálogo), `dq_result` (resultado por corrida) | `seeds/dq_rules.sql` y cada corrida del ETL del almacén |
 | Uso | `usage_herramienta`, `usage_consulta`, `usage_consulta_objeto`, `usage_acceso_objeto`, vista `vw_perfil_uso` | `etl/etl_usage_metadata.py` |
 
@@ -67,8 +67,8 @@ El núcleo de la Entrega 1 son las seis primeras tablas ([`docs/img/metadata_cor
 
 | Capa | Reglas | Dónde se evalúa |
 |---|---|---|
-| `DATA_QUALITY` | 11 | Registro por registro en `datawarehouse/etl/etl_dw_staging.py`; las bloqueantes rechazan el registro |
-| `TRANSFORMATION` | 8 | En `etl_dw_dimensions.py` y `etl_dw_facts.py`; documentan cómo el modelo resuelve un hallazgo del perfilamiento |
+| `DATA_QUALITY` | 11 | Registro por registro en `pipeline/layer3_data_quality.py`; las bloqueantes rechazan el registro |
+| `TRANSFORMATION` | 8 | En `layer5_transform_dimensions.py` y `layer5_transform_facts.py`; documentan cómo el modelo resuelve un hallazgo del perfilamiento |
 | `MONITOREO` | 1 | `almacen_frescura_de_carga` está catalogada pero ningún proceso la evalúa todavía |
 
 Cada corrida del ETL guarda en `dq_result` cuántas filas evaluó cada regla y cuántas fallaron. Con los datos originales ninguna regla bloqueante falla; la única advertencia de la capa `DATA_QUALITY` es `cliente_con_vendedor` (22 clientes sin representante).

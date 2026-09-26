@@ -5,7 +5,8 @@ Build the whole project from scratch.
     python run_all.py
 
 Starts the Docker stack (both sources, the PostgreSQL instance that holds
-the metadata repository and the data warehouse, and Metabase), waits for
+the metadata repository, the pipeline staging area and the data
+warehouse, and Metabase), waits for
 it to be ready and runs every step of the pipeline in order. Needs only
 Docker and Python 3.9+.
 
@@ -29,7 +30,8 @@ PY = sys.executable
 RUN_SQL = "tools/run_sql.py"
 
 # (title, command). Order matters: technical metadata before business
-# metadata, staging before dimensions, dimensions before facts.
+# metadata, warehouse tables before the pipeline that loads them, staging
+# before dimensions, dimensions before facts.
 PIPELINE = [
     # --- Source discovery and profiling ---
     ("Profiling: technical metadata and column profile from the dumps",
@@ -57,19 +59,23 @@ PIPELINE = [
     ("Metadata repository: usage metadata extension",
      [PY, RUN_SQL, "metadata_repository/ddl/04_usage_extension.sql", "METADATA_URL"]),
 
-    # --- Data warehouse ---
-    ("Data warehouse: star schema",
-     [PY, RUN_SQL, "datawarehouse/ddl/01_star_schema.sql"]),
-    ("Data warehouse: staging layers",
-     [PY, RUN_SQL, "datawarehouse/ddl/02_staging_layers.sql"]),
+    # --- Data warehouse (EDW and data marts), database dw ---
+    ("Data warehouse: EDW star schema",
+     [PY, RUN_SQL, "datawarehouse/edw/star_schema.sql"]),
     ("Data warehouse: data marts",
-     [PY, RUN_SQL, "datawarehouse/ddl/03_data_marts.sql"]),
-    ("Data warehouse ETL: layers 1-4 (extract, quality, clean staging)",
-     [PY, "datawarehouse/etl/etl_dw_staging.py"]),
-    ("Data warehouse ETL: layers 5-7, dimensions",
-     [PY, "datawarehouse/etl/etl_dw_dimensions.py"]),
-    ("Data warehouse ETL: layers 5-7, facts",
-     [PY, "datawarehouse/etl/etl_dw_facts.py"]),
+     [PY, RUN_SQL, "datawarehouse/data_marts/data_marts.sql"]),
+
+    # --- Pipeline (7 integration layers), database staging ---
+    ("Pipeline: staging database",
+     [PY, "tools/create_database.py", "STAGING_URL"]),
+    ("Pipeline: staging area tables",
+     [PY, RUN_SQL, "pipeline/staging_dw.sql", "STAGING_URL"]),
+    ("Pipeline: layers 1-4 (extract, quality, clean staging)",
+     [PY, "pipeline/run_staging.py"]),
+    ("Pipeline: layers 5-7, dimensions",
+     [PY, "pipeline/run_dimensions.py"]),
+    ("Pipeline: layers 5-7, facts",
+     [PY, "pipeline/run_facts.py"]),
 
     # --- Warehouse metadata ---
     ("Metadata repository: warehouse catalogue and lineage",
@@ -81,10 +87,9 @@ PIPELINE = [
     ("Test: warehouse totals against the sources",
      [PY, "datawarehouse/tests/validate_against_sources.py"]),
     ("Test: data quality rejection path (synthetic data)",
-     [PY, "datawarehouse/tests/test_dq_reject_path.py"]),
-
+     [PY, "pipeline/tests/test_dq_reject_path.py"]),
     ("Test: load is all-or-nothing (forced failure)",
-     [PY, "datawarehouse/tests/test_load_atomic.py"]),
+     [PY, "pipeline/tests/test_load_atomic.py"]),
 
     # --- Deliverables ---
     ("Reports: Metabase dashboard",
@@ -192,11 +197,23 @@ def prepare_env_file():
     else:
         print("  Using existing .env.")
 
-    required = ["CLASSICMODELS_URL", "CUSTOMERSERVICE_URL", "METADATA_URL", "DW_URL"]
-    defined = {line.split("=", 1)[0].strip()
-               for line in env.read_text(encoding="utf-8").splitlines()
-               if "=" in line and not line.lstrip().startswith("#")}
-    missing = [v for v in required if v not in defined]
+    def variables(path):
+        return {line.split("=", 1)[0].strip(): line
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if "=" in line and not line.lstrip().startswith("#")}
+
+    # Variables added to .env.example after this .env was created (e.g.
+    # STAGING_URL) are copied over with their local-stack value.
+    defined, template = variables(env), variables(example)
+    added = [v for v in template if v not in defined]
+    if added:
+        with env.open("a", encoding="utf-8") as f:
+            f.write("\n" + "\n".join(template[v] for v in added) + "\n")
+        print(f"  Added to .env from .env.example: {', '.join(added)}")
+
+    required = ["CLASSICMODELS_URL", "CUSTOMERSERVICE_URL", "METADATA_URL",
+                "STAGING_URL", "DW_URL"]
+    missing = [v for v in required if v not in variables(env)]
     if missing:
         sys.exit(f"  .env is missing {', '.join(missing)}. "
                  f"Compare it with .env.example or delete it to regenerate it.")
@@ -265,6 +282,7 @@ def main():
         password         Javeriana2026!
 
     Data warehouse       localhost:5434 / database 'dw'
+    Pipeline staging     localhost:5434 / database 'staging'
     Metadata repository  localhost:5434 / database 'metadata'
     classicmodels        localhost:3307
     customerservice      localhost:5433

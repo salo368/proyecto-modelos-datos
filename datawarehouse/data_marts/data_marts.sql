@@ -9,7 +9,7 @@
 --   dm.vw_ventas_mensuales_linea        effective sales per month x
 --                                       product line
 --
--- Run after 01_star_schema.sql.
+-- Run after datawarehouse/edw/star_schema.sql.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS dm;

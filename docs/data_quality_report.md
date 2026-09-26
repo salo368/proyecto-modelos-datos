@@ -2,7 +2,7 @@
 
 Qué le pasó a los datos en cada capa de la última carga completa: cuántos registros entraron, cuántos se descartaron, qué nulos se resolvieron y cuáles se conservaron, y sobre qué porcentaje de los datos se apoya cada análisis del almacén.
 
-> Generado por `tools/generate_quality_report.py` a partir de lo que cada capa dejó persistido en `staging_dw` y del linaje del repositorio de metadatos. Ninguna cifra está escrita a mano: se regenera con cada `python run_all.py`.
+> Generado por `tools/generate_quality_report.py` a partir de lo que cada capa del pipeline dejó persistido en la base `staging`, de lo que quedó cargado en el almacén (`dw`) y del linaje del repositorio de metadatos. Ninguna cifra está escrita a mano: se regenera con cada `python run_all.py`.
 
 ## Resumen
 
@@ -14,7 +14,7 @@ Qué le pasó a los datos en cada capa de la última carga completa: cuántos re
 | **Total extraído** | **4.335** | **100 %** |
 
 - **99,5 %** de los registros pasaron las reglas de calidad sin ninguna observación.
-- **0,5 %** pasaron con una advertencia: se usan, pero la anomalía queda registrada en `staging_dw.vw_reporte_transacciones_malas`.
+- **0,5 %** pasaron con una advertencia: se usan, pero la anomalía queda registrada en `staging_dw.vw_reporte_transacciones_malas` (base `staging`).
 - **0,0 %** fueron rechazados: ningún registro incumplió una regla bloqueante.
 - 374 registros (8,6 %) pertenecen a tablas que se extraen pero que el modelo actual no usa (`payments`, `cs_customer_products`). Se traen por el principio «traer todo pensando en necesidades futuras».
 

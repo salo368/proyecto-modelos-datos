@@ -4,7 +4,7 @@
 -- Engine: PostgreSQL 16
 --
 -- Restore on an empty database with:
---   psql "<connection-url>" -f datawarehouse/backup/dw_backup.sql
+--   psql "<connection-url>" -f datawarehouse/edw/backup/dw_backup.sql
 --
 -- Contents:
 --   dim_tiempo: 1096 filas
@@ -27,7 +27,7 @@ DROP TABLE IF EXISTS dim_producto CASCADE;
 DROP TABLE IF EXISTS dim_cliente CASCADE;
 DROP TABLE IF EXISTS dim_tiempo CASCADE;
 
--- ---- datawarehouse/ddl/01_star_schema.sql ----
+-- ---- datawarehouse/edw/star_schema.sql ----
 -- ============================================================
 -- Data warehouse - dimensional model (fact constellation)
 --
@@ -40,9 +40,15 @@ DROP TABLE IF EXISTS dim_tiempo CASCADE;
 -- dim_producto. Customers and products share the same business key in
 -- both sources, which is what allows the two facts to be combined.
 --
--- The staging layers of the ETL are defined in 02_staging_layers.sql
--- and the data-mart views in 03_data_marts.sql.
+-- This is the EDW: the target of layer 7 (Load) of the pipeline in
+-- pipeline/. The pipeline works in its own database (staging); only
+-- its Load writes here. The data-mart views built on top of the EDW
+-- are in datawarehouse/data_marts/data_marts.sql.
 -- ============================================================
+
+-- The pipeline staging area used to be a schema of this database; it now
+-- lives in its own database (staging). Remove the old copy so dw holds
+-- only the warehouse.
 
 
 -- ------------------------------------------------------------
@@ -207,7 +213,7 @@ CREATE INDEX idx_fl_cliente  ON fact_llamadas_servicio(cliente_key);
 CREATE INDEX idx_fl_producto ON fact_llamadas_servicio(producto_key);
 CREATE INDEX idx_fl_empleado ON fact_llamadas_servicio(empleado_key);
 
--- ---- datawarehouse/ddl/03_data_marts.sql ----
+-- ---- datawarehouse/data_marts/data_marts.sql ----
 -- ============================================================
 -- Data marts (schema dm)
 --
@@ -219,7 +225,7 @@ CREATE INDEX idx_fl_empleado ON fact_llamadas_servicio(empleado_key);
 --   dm.vw_ventas_mensuales_linea        effective sales per month x
 --                                       product line
 --
--- Run after 01_star_schema.sql.
+-- Run after datawarehouse/edw/star_schema.sql.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS dm;

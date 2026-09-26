@@ -22,7 +22,7 @@ It runs against the live warehouse. If load_atomic were not atomic, the
 warehouse would be left damaged: rerun `python run_all.py` to rebuild it.
 
 Usage:
-    python datawarehouse/tests/test_load_atomic.py
+    python pipeline/tests/test_load_atomic.py
 """
 import sys
 from pathlib import Path
@@ -30,8 +30,9 @@ from pathlib import Path
 import pandas as pd
 import sqlalchemy as sa
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "etl"))
-from common import DW, load_atomic  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from common import DW  # noqa: E402
+from layer7_load import load_atomic  # noqa: E402
 
 WATCHED = ["dim_oficina", "dim_estado_orden", "fact_ventas", "fact_llamadas_servicio"]
 

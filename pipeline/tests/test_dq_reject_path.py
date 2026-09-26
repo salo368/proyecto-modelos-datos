@@ -14,16 +14,17 @@ It calls the same functions as the ETL on in-memory data and writes
 nothing; it only reads the NOT NULL columns from the metadata repository.
 
 Usage:
-    python datawarehouse/tests/test_dq_reject_path.py
+    python pipeline/tests/test_dq_reject_path.py
 """
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "etl"))
-from etl_dw_staging import (QualityLog, business_checks,  # noqa: E402
-                            rejection_reasons, technical_checks)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from layer3_data_quality import (QualityLog, business_checks,  # noqa: E402
+                                 technical_checks)
+from layer4_clean_staging import rejection_reasons  # noqa: E402
 
 
 def batch(source, rows):
@@ -133,7 +134,7 @@ def main():
     log = QualityLog()
     technical_checks(DATA, log)
     business_checks(DATA, log)
-    rejected = rejection_reasons(log)
+    rejected = rejection_reasons(log.failures)
 
     detected = {}
     for f in log.failures:

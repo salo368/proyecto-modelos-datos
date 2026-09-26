@@ -29,4 +29,4 @@ Si el almacén está en el stack local, el script le indica a Metabase que lo al
 
 El reporte 2 es el que cruza las dos fuentes. Con los datos originales, los productos con más llamadas por unidad vendida son *American Airlines: B767-300* (7 llamadas / 894 unidades), *1962 City of Detroit Streetcar* (6 / 966) y *1912 Ford Model T Delivery Wagon* (5 / 991).
 
-Las mismas consultas, con algunas columnas adicionales, están en [`datawarehouse/queries/business_questions.sql`](../datawarehouse/queries/business_questions.sql) para ejecutarlas desde cualquier cliente SQL.
+Las mismas consultas, con algunas columnas adicionales, están en [`datawarehouse/edw/business_questions.sql`](../datawarehouse/edw/business_questions.sql) para ejecutarlas desde cualquier cliente SQL.

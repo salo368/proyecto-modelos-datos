@@ -7,8 +7,9 @@ every constraint, index, comment and view; the data is dumped as INSERT
 statements in foreign-key order. The file restores with psql on an
 empty PostgreSQL database and needs no pg_dump binary on the host.
 
-Staging schemas (staging_dw, staging) are not included: they hold the
-load history and are rebuilt by running the ETL.
+Staging areas are not included: the pipeline's (database staging) and
+the metadata ETL's (schema staging) hold load history and are rebuilt
+by running the pipeline.
 
 Usage:
     python tools/generate_backup.py dw
@@ -26,10 +27,10 @@ load_dotenv()
 TARGETS = {
     "dw": {
         "url_var": "DW_URL",
-        "output":  "datawarehouse/backup/dw_backup.sql",
+        "output":  "datawarehouse/edw/backup/dw_backup.sql",
         "title":   "Almacen de datos (modelo dimensional)",
-        "ddl":     ["datawarehouse/ddl/01_star_schema.sql",
-                    "datawarehouse/ddl/03_data_marts.sql"],
+        "ddl":     ["datawarehouse/edw/star_schema.sql",
+                    "datawarehouse/data_marts/data_marts.sql"],
         # Load order respects foreign keys.
         "tables": [
             "dim_tiempo", "dim_cliente", "dim_producto", "dim_empleado",

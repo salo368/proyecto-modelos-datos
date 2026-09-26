@@ -1,19 +1,25 @@
 -- ============================================================
--- Data warehouse - staging layers of the ETL (schema staging_dw)
+-- Pipeline staging area (database staging, schema staging_dw)
 --
--- The warehouse ETL follows Giordano's data integration reference
--- architecture. Every layer is a physical table:
+-- Giordano's data integration reference architecture. This database is
+-- NOT the warehouse: it is the machinery that feeds it, kept apart from
+-- the warehouse database (dw). Only layer 7 writes to dw. Every layer
+-- is a physical table written by its own module:
 --
---   #  Layer               Table(s)                                  Written by
---   -----------------------------------------------------------------------------
---   1  Extract/Publish     (extraction models in etl_dw_staging.py)  -
---   2  Initial Staging     stg_initial_classicmodels,                etl_dw_staging.py
---                          stg_initial_customerservice, stg_perfil
---   3  Data Quality        stg_error_log                             etl_dw_staging.py
---   4  Clean Staging       stg_clean, stg_rejected                   etl_dw_staging.py
---   5  Transformation      stg_transform                             etl_dw_dimensions.py,
---   6  Load-Ready Publish  stg_loadready                             etl_dw_facts.py
---   7  Load                dim_* / fact_* (01_star_schema.sql)
+--   #  Layer               Table(s)                          Written by
+--   ---------------------------------------------------------------------------
+--   1  Extract/Publish     (in memory, handed to layer 2)    layer1_extract.py
+--   2  Initial Staging     stg_initial_classicmodels,        layer2_initial_staging.py
+--                          stg_initial_customerservice,
+--                          stg_perfil
+--   3  Data Quality        stg_error_log                     layer3_data_quality.py
+--   4  Clean Staging       stg_clean, stg_rejected           layer4_clean_staging.py
+--   5  Transformation      stg_transform                     layer5_transform_dimensions.py,
+--                                                            layer5_transform_facts.py
+--   6  Load-Ready Publish  stg_loadready                     layer6_load_ready.py
+--   7  Load                dim_* / fact_* in the EDW,        layer7_load.py
+--                          database dw
+--                          (datawarehouse/edw/star_schema.sql)
 --
 -- Staging tables are never truncated: each run appends rows under its
 -- run_id, so the full history of every load is kept.

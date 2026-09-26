@@ -11,7 +11,7 @@
 --
 -- dw_* tables are filled by etl/etl_dw_metadata.py, dq_rule by
 -- seeds/dq_rules.sql, and etl_process / etl_execution / dq_result by
--- every run of the warehouse ETL (datawarehouse/etl/common.py).
+-- every run of the pipeline that loads the warehouse (pipeline/common.py).
 -- ============================================================
 
 -- ------------------------------------------------------------

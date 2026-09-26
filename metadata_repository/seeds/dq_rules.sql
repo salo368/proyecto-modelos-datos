@@ -4,12 +4,12 @@
 -- Every warehouse ETL run stores the outcome of these rules in
 -- dq_result. The capa column says where each rule is evaluated:
 --
---   DATA_QUALITY    row by row in datawarehouse/etl/etl_dw_staging.py.
+--   DATA_QUALITY    row by row in pipeline/layer3_data_quality.py.
 --                   BLOQUEANTE rules send the row to stg_rejected;
 --                   ADVERTENCIA rules let it through and log it in
 --                   stg_error_log.
 --   TRANSFORMATION  profiling findings handled by a modelling decision
---                   in etl_dw_dimensions.py / etl_dw_facts.py.
+--                   in layer5_transform_dimensions.py / layer5_transform_facts.py.
 --   MONITOREO       about warehouse operation; catalogued here, not
 --                   evaluated by the load.
 --

@@ -1,9 +1,8 @@
 """
-Warehouse ETL, layers 5-7 for the dimensions.
+Layer 5 - Transformation, dimensions.
 
-Reads the latest successful Clean Staging run (never the sources),
-conforms each subject area, publishes the load-ready rows and reloads
-the dimension tables:
+Conforms each subject area from Clean Staging (never the sources) into
+the shape of its dimension:
 
     Area          Target             Operations
     Tiempo        dim_tiempo         generated
@@ -13,25 +12,22 @@ the dimension tables:
     Producto      dim_producto       join with productlines, cross-source join
     Empleado      dim_empleado       union of both sources, composite key
 
-Usage:
-    python datawarehouse/etl/etl_dw_dimensions.py
+    Input   stg_clean (layer 4)
+    Output  stg_transform
 """
 from datetime import date, timedelta
 
 import pandas as pd
 
-from common import (close_run, insert, json_rows, last_successful_staging_run,
-                    load_atomic, log_execution, open_run, publish_load_ready,
-                    read_clean, read_load_ready)
-
-PROCESS = "etl_dw_dimensions"
+from common import write_payload
+from layer4_clean_staging import read_clean
 
 MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 DAY_NAMES = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
 
-# Fixed load order so the output is always the same.
-LOAD_ORDER = ["dim_tiempo", "dim_estado_orden", "dim_oficina",
+# Target tables, in a fixed order so the output is always the same.
+TARGETS = ["dim_tiempo", "dim_estado_orden", "dim_oficina",
               "dim_cliente", "dim_producto", "dim_empleado"]
 
 # Order statuses that do not count as a closed sale.
@@ -46,16 +42,13 @@ def record_quality(rule, evaluated, failed, message):
 
 
 def publish_transform(run_id, area, target, df, operations):
-    insert("stg_transform", [
-        {"run_id": run_id, "area_conformada": area, "objetivo": target,
-         "nro_fila": i, "payload": p, "operaciones": operations}
-        for i, p in enumerate(json_rows(df), 1)
-    ])
-    print(f"    {area:<13}{target:<18}{len(df):>6}  {operations}")
+    n = write_payload("stg_transform", run_id, df, area_conformada=area,
+                      objetivo=target, operaciones=operations)
+    print(f"    {area:<13}{target:<18}{n:>6}  {operations}")
 
 
 # ============================================================
-# Layer 5 - Transformation, one function per subject area
+# One function per subject area
 # ============================================================
 
 def area_time(run_id):
@@ -191,51 +184,14 @@ def area_employee(run_id, staging_run):
                       "union de fuentes, llave compuesta")
 
 
-# ============================================================
-# Layers 6 and 7 - Load-Ready Publish and Load
-# ============================================================
-
-def publish_and_load(run_id):
-    print("\n[Layer 6] Load-Ready Publish (DIMENSIONES)")
-    for target, n in publish_load_ready(run_id, "DIMENSIONES", LOAD_ORDER).items():
-        print(f"    {target:<18}{n:>6} rows")
-
-    # Load reads what Load-Ready left, and replaces the six dimensions in a
-    # single transaction: all or nothing. The model tables are fully
-    # reloaded each time; the history lives in staging, which is never
-    # truncated.
-    print("[Layer 7] Load (una sola transaccion)")
-    frames = read_load_ready(run_id, LOAD_ORDER)
-    total = load_atomic(frames)
-    for target, df in frames.items():
-        print(f"    {target:<18}{len(df):>6} rows")
-    return total
-
-
-if __name__ == "__main__":
-    staging_run = last_successful_staging_run()
-    run_id = open_run("dimensiones", source_run=staging_run)
-    print(f"Warehouse ETL, dimensions (layers 5-7) - run_id={run_id}, "
-          f"reading Clean Staging of run {staging_run}")
-    try:
-        print("\n[Layer 5] Transformation")
-        area_time(run_id)
-        area_organization(run_id, staging_run)
-        area_sales(run_id, staging_run)
-        area_customer(run_id, staging_run)
-        area_product(run_id, staging_run)
-        area_employee(run_id, staging_run)
-        written = publish_and_load(run_id)
-    except Exception as e:
-        close_run(run_id, "ERROR")
-        log_execution(PROCESS, "", "", run_id, 0, 0, 0, "ERROR", str(e)[:500])
-        raise
-    close_run(run_id, "OK")
-    log_execution(
-        PROCESS,
-        "Capas 5 a 7 para el modelo de dimensiones: conforma por area "
-        "tematica desde Clean Staging y carga las seis dimensiones.",
-        f"staging_dw.stg_clean (run {staging_run}); las fuentes no se releen",
-        run_id, written, written, 0, "OK", quality_results=_quality_results,
-    )
-    print(f"\nDimensions loaded: {written} rows.")
+def run(run_id, staging_run):
+    """Transform every dimension; returns the (rule, evaluated, failed)
+    results to record in the metadata repository."""
+    print("\n[Layer 5] Transformation (dimensions)")
+    area_time(run_id)
+    area_organization(run_id, staging_run)
+    area_sales(run_id, staging_run)
+    area_customer(run_id, staging_run)
+    area_product(run_id, staging_run)
+    area_employee(run_id, staging_run)
+    return _quality_results

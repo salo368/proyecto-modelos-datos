@@ -1,25 +1,23 @@
 """
-Warehouse ETL, layers 5-7 for the facts.
+Layer 5 - Transformation, facts.
 
-Reads the same Clean Staging run as the dimension process and resolves
-surrogate keys against the dimensions already loaded, so it must run
-after etl_dw_dimensions.py.
+Conforms sales and service from Clean Staging: joins, surrogate-key
+lookups against the dimensions already loaded in the EDW, and calculated
+measures. It must run after the dimension branch has been loaded.
 
     Area      Target                  Operations
     Ventas    fact_ventas             join of 5 tables, 5 key lookups, measures
     Servicio  fact_llamadas_servicio  3 key lookups, measures
 
-Usage:
-    python datawarehouse/etl/etl_dw_facts.py
+    Input   stg_clean (layer 4); dim_* (EDW) for the key lookups
+    Output  stg_transform
 """
 import pandas as pd
 
-from common import (DW, close_run, insert, json_rows, last_successful_staging_run,
-                    load_atomic, log_execution, open_run, publish_load_ready,
-                    read_clean, read_load_ready)
+from common import DW, write_payload
+from layer4_clean_staging import read_clean
 
-PROCESS = "etl_dw_facts"
-LOAD_ORDER = ["fact_ventas", "fact_llamadas_servicio"]
+TARGETS = ["fact_ventas", "fact_llamadas_servicio"]
 
 _quality_results = []   # (rule, evaluated, failed) -> dq_result
 
@@ -53,16 +51,13 @@ def check_keys(df, required, target):
 
 
 def publish_transform(run_id, area, target, df, operations):
-    insert("stg_transform", [
-        {"run_id": run_id, "area_conformada": area, "objetivo": target,
-         "nro_fila": i, "payload": p, "operaciones": operations}
-        for i, p in enumerate(json_rows(df), 1)
-    ])
-    print(f"    {area:<10}{target:<24}{len(df):>6}  {operations}")
+    n = write_payload("stg_transform", run_id, df, area_conformada=area,
+                      objetivo=target, operaciones=operations)
+    print(f"    {area:<10}{target:<24}{n:>6}  {operations}")
 
 
 # ============================================================
-# Layer 5 - Transformation
+# One function per subject area
 # ============================================================
 
 def area_sales(run_id, staging_run):
@@ -174,45 +169,8 @@ def area_service(run_id, staging_run):
     return len(out)
 
 
-# ============================================================
-# Layers 6 and 7 - Load-Ready Publish and Load
-# ============================================================
-
-def publish_and_load(run_id):
-    print("\n[Layer 6] Load-Ready Publish (HECHOS)")
-    for target, n in publish_load_ready(run_id, "HECHOS", LOAD_ORDER).items():
-        print(f"    {target:<24}{n:>6} rows")
-
-    # Load reads what Load-Ready left, and replaces both fact tables in a
-    # single transaction: all or nothing.
-    print("[Layer 7] Load (una sola transaccion)")
-    frames = read_load_ready(run_id, LOAD_ORDER)
-    total = load_atomic(frames)
-    for target, df in frames.items():
-        print(f"    {target:<24}{len(df):>6} rows")
-    return total
-
-
-if __name__ == "__main__":
-    staging_run = last_successful_staging_run()
-    run_id = open_run("hechos", source_run=staging_run)
-    print(f"Warehouse ETL, facts (layers 5-7) - run_id={run_id}, "
-          f"reading Clean Staging of run {staging_run}")
-    try:
-        print("\n[Layer 5] Transformation")
-        rows_read = area_sales(run_id, staging_run) + area_service(run_id, staging_run)
-        written = publish_and_load(run_id)
-    except Exception as e:
-        close_run(run_id, "ERROR")
-        log_execution(PROCESS, "", "", run_id, 0, 0, 0, "ERROR", str(e)[:500])
-        raise
-    close_run(run_id, "OK")
-    log_execution(
-        PROCESS,
-        "Capas 5 a 7 para el modelo de hechos: conforma ventas y servicio "
-        "desde Clean Staging, resuelve llaves subrogadas y carga los dos "
-        "hechos.",
-        f"staging_dw.stg_clean (run {staging_run}); las fuentes no se releen",
-        run_id, rows_read, written, 0, "OK", quality_results=_quality_results,
-    )
-    print(f"\nFacts loaded: {written} rows.")
+def run(run_id, staging_run):
+    """Transform both facts; returns (rows transformed, quality results)."""
+    print("\n[Layer 5] Transformation (facts)")
+    rows = area_sales(run_id, staging_run) + area_service(run_id, staging_run)
+    return rows, _quality_results

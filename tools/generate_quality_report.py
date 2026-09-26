@@ -6,7 +6,8 @@ load and writes it to docs/data_quality_report.md, so that anyone reading
 an analysis built on the warehouse knows what share of the data it rests
 on and what was left out, fixed or kept as NULL.
 
-Every figure is computed from what the layers left persisted:
+Every figure is computed from what the layers left persisted in the
+staging database and from the warehouse itself:
 
     staging_dw.stg_initial_*   rows extracted per source table
     staging_dw.stg_perfil      nulls per source column
@@ -35,6 +36,7 @@ from dotenv import load_dotenv
 REPO = Path(__file__).resolve().parents[1]
 load_dotenv(REPO / ".env")
 
+STAGING = sa.create_engine(os.getenv("STAGING_URL"))
 DW = sa.create_engine(os.getenv("DW_URL"))
 META = sa.create_engine(os.getenv("METADATA_URL"))
 OUT = REPO / "docs" / "data_quality_report.md"
@@ -100,13 +102,13 @@ def rows(engine, sql, **params):
 
 
 def last_runs():
-    staging = scalar(DW, """SELECT MAX(run_id) FROM staging_dw.etl_run
+    staging = scalar(STAGING, """SELECT MAX(run_id) FROM staging_dw.etl_run
                             WHERE proceso = 'staging' AND estado = 'OK'""")
     if staging is None:
         sys.exit("There is no successful load yet. Run: python run_all.py")
 
     def branch(process):
-        return scalar(DW, """SELECT MAX(run_id) FROM staging_dw.etl_run
+        return scalar(STAGING, """SELECT MAX(run_id) FROM staging_dw.etl_run
                              WHERE proceso = :p AND estado = 'OK' AND run_origen = :s""",
                       p=process, s=staging)
 
@@ -118,7 +120,7 @@ def last_runs():
 
 def funnel(rs):
     """Per source table: extracted, warning, rejected, clean."""
-    extracted = rows(DW, """
+    extracted = rows(STAGING, """
         SELECT 'classicmodels' AS fuente, tabla_origen, COUNT(*)
           FROM staging_dw.stg_initial_classicmodels WHERE run_id = :r GROUP BY 2
         UNION ALL
@@ -127,7 +129,7 @@ def funnel(rs):
         ORDER BY 1, 2""", r=rs)
 
     def per_table(sql):
-        return {t: c for t, c in rows(DW, sql, r=rs)}
+        return {t: c for t, c in rows(STAGING, sql, r=rs)}
 
     clean = per_table("""SELECT tabla_origen, COUNT(*) FROM staging_dw.stg_clean
                          WHERE run_id = :r GROUP BY 1""")
@@ -183,7 +185,7 @@ def quality_rules(rs):
 
 
 def per_target(table_name, run_id):
-    return rows(DW, f"""SELECT objetivo, COUNT(*) FROM staging_dw.{table_name}
+    return rows(STAGING, f"""SELECT objetivo, COUNT(*) FROM staging_dw.{table_name}
                         WHERE run_id = :r GROUP BY 1 ORDER BY 1""", r=run_id)
 
 
@@ -248,7 +250,8 @@ def build():
       "análisis del almacén.")
     w("")
     w("> Generado por `tools/generate_quality_report.py` a partir de lo que cada "
-      "capa dejó persistido en `staging_dw` y del linaje del repositorio de "
+      "capa del pipeline dejó persistido en la base `staging`, de lo que quedó "
+      "cargado en el almacén (`dw`) y del linaje del repositorio de "
       "metadatos. Ninguna cifra está escrita a mano: se regenera con cada "
       "`python run_all.py`.")
     w("")
@@ -268,7 +271,8 @@ def build():
       "calidad sin ninguna observación.")
     if warned:
         w(f"- **{pct(warned, total)}** pasaron con una advertencia: se usan, pero "
-          "la anomalía queda registrada en `staging_dw.vw_reporte_transacciones_malas`.")
+          "la anomalía queda registrada en `staging_dw.vw_reporte_transacciones_malas` "
+          "(base `staging`).")
     w(f"- **{pct(rejected, total)}** fueron rechazados"
       + (": ningún registro incumplió una regla bloqueante." if rejected == 0 else "."))
     if unused_tables:
@@ -282,9 +286,9 @@ def build():
     w("")
     tr_d, tr_h = per_target("stg_transform", rd), per_target("stg_transform", rh)
     lr_d, lr_h = per_target("stg_loadready", rd), per_target("stg_loadready", rh)
-    profiled = scalar(DW, "SELECT COUNT(*) FROM staging_dw.stg_perfil WHERE run_id = :r", r=rs)
-    with_nulls = scalar(DW, "SELECT COUNT(*) FROM staging_dw.stg_perfil WHERE run_id = :r AND nulos > 0", r=rs)
-    findings = scalar(DW, "SELECT COUNT(*) FROM staging_dw.stg_error_log WHERE run_id = :r", r=rs)
+    profiled = scalar(STAGING, "SELECT COUNT(*) FROM staging_dw.stg_perfil WHERE run_id = :r", r=rs)
+    with_nulls = scalar(STAGING, "SELECT COUNT(*) FROM staging_dw.stg_perfil WHERE run_id = :r AND nulos > 0", r=rs)
+    findings = scalar(STAGING, "SELECT COUNT(*) FROM staging_dw.stg_error_log WHERE run_id = :r", r=rs)
     loaded = {t: loaded_count(t) for t, _ in tr_d + tr_h}
 
     w(table(
@@ -345,7 +349,7 @@ def build():
       "ejemplo, una orden tiene varias líneas).")
     w("")
     nr = []
-    for tbl, col, nulos, filas in rows(DW, """
+    for tbl, col, nulos, filas in rows(STAGING, """
             SELECT tabla_origen, columna, nulos, filas FROM staging_dw.stg_perfil
              WHERE run_id = :r AND nulos > 0 ORDER BY tabla_origen, columna""", r=rs):
         targets = sorted(lin.get(tbl, {}).get(col, set()))

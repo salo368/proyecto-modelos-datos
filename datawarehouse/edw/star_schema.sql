@@ -10,9 +10,16 @@
 -- dim_producto. Customers and products share the same business key in
 -- both sources, which is what allows the two facts to be combined.
 --
--- The staging layers of the ETL are defined in 02_staging_layers.sql
--- and the data-mart views in 03_data_marts.sql.
+-- This is the EDW: the target of layer 7 (Load) of the pipeline in
+-- pipeline/. The pipeline works in its own database (staging); only
+-- its Load writes here. The data-mart views built on top of the EDW
+-- are in datawarehouse/data_marts/data_marts.sql.
 -- ============================================================
+
+-- The pipeline staging area used to be a schema of this database; it now
+-- lives in its own database (staging). Remove the old copy so dw holds
+-- only the warehouse.
+DROP SCHEMA IF EXISTS staging_dw CASCADE;
 
 DROP TABLE IF EXISTS fact_ventas             CASCADE;
 DROP TABLE IF EXISTS fact_llamadas_servicio  CASCADE;
