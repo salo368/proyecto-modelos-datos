@@ -27,7 +27,7 @@ Qué le pasó a los datos en cada capa de la última carga completa: cuántos re
 | 4 · Clean Staging | 4.335 | 4.335 | 4.335 limpios, 0 rechazados |
 | 5 · Transformation | 4.335 | 4.498 | 6 dimensiones y 2 hechos conformados |
 | 6 · Load-Ready Publish | 4.498 | 4.498 | forma definitiva, sin transformaciones pendientes |
-| 7 · Load | 4.498 | 4.498 | tablas del modelo reemplazadas en una sola transacción |
+| 7 · Load | 4.498 | 4.498 | dimensiones por llave de negocio y hechos reemplazados, cada rama en una sola transacción |
 
 Entre las capas 4 y 5 el número de filas cambia porque la transformación cambia el grano: varias tablas fuente se consolidan en una dimensión, `dim_tiempo` se genera sin fuente y las tablas no usadas por el modelo no continúan.
 
@@ -61,7 +61,9 @@ Entre las capas 4 y 5 el número de filas cambia porque la transformación cambi
 | `consistencia_entre_fuentes_producto` | Negocio | Advierte | 110 | 0 | 0,0 % |
 | `precio_sugerido_coherente` | Negocio | Advierte | 110 | 0 | 0,0 % |
 | `envio_consistente_con_estado` | Negocio | Rechaza | 326 | 0 | 0,0 % |
+| `fecha_no_futura` | Negocio | Rechaza | 707 | 0 | 0,0 % |
 | `integridad_referencial` | Negocio | Rechaza | 4.059 | 0 | 0,0 % |
+| `padre_rechazado` | Negocio | Rechaza | 4.059 | 0 | 0,0 % |
 | `secuencia_de_fechas` | Negocio | Rechaza | 326 | 0 | 0,0 % |
 | `valores_positivos` | Negocio | Rechaza | 3.501 | 0 | 0,0 % |
 

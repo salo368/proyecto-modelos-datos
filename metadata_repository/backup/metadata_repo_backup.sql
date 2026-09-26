@@ -18,9 +18,9 @@
 --   dw_attribute: 68 filas
 --   dw_lineage: 68 filas
 --   etl_process: 3 filas
---   etl_execution: 3 filas
---   dq_rule: 20 filas
---   dq_result: 19 filas
+--   etl_execution: 6 filas
+--   dq_rule: 22 filas
+--   dq_result: 42 filas
 --   usage_herramienta: 3 filas
 --   usage_consulta: 8 filas
 --   usage_consulta_objeto: 25 filas
@@ -395,107 +395,107 @@ INSERT INTO data_source (source_id, source_name, db_engine, description) VALUES
 
 -- db_table: 13 filas
 INSERT INTO db_table (table_id, source_id, schema_name, table_name, table_description, row_count_approx, loaded_at) VALUES
-    (1, 1, 'classicmodels', 'customers', 'Clientes de la compania que realizan ordenes de compra.', 122, '2026-09-26 21:29:13.815713'),
-    (2, 1, 'classicmodels', 'employees', 'Empleados de la compania, incluye representantes de ventas y su jerarquia.', 23, '2026-09-26 21:29:13.815713'),
-    (3, 1, 'classicmodels', 'offices', 'Oficinas o sedes fisicas de la compania.', 7, '2026-09-26 21:29:13.815713'),
-    (4, 1, 'classicmodels', 'orderdetails', 'Detalle (lineas) de cada orden de compra: producto, cantidad y precio.', 2996, '2026-09-26 21:29:13.815713'),
-    (5, 1, 'classicmodels', 'orders', 'Encabezado de las ordenes de compra realizadas por los clientes.', 326, '2026-09-26 21:29:13.815713'),
-    (6, 1, 'classicmodels', 'payments', 'Pagos realizados por los clientes asociados a sus ordenes de compra.', 273, '2026-09-26 21:29:13.815713'),
-    (7, 1, 'classicmodels', 'productlines', 'Lineas o categorias de productos.', 7, '2026-09-26 21:29:13.815713'),
-    (8, 1, 'classicmodels', 'products', 'Catalogo de productos que la compania vende.', 110, '2026-09-26 21:29:13.815713'),
-    (9, 2, 'public', 'cs_customers', 'Clientes registrados en el sistema de call center.', 122, '2026-09-26 21:29:13.815713'),
-    (10, 2, 'public', 'cs_customer_calls', 'Registro de llamadas de servicio al cliente.', 108, '2026-09-26 21:29:13.815713'),
-    (11, 2, 'public', 'cs_employees', 'Empleados que atienden llamadas en el call center.', 30, '2026-09-26 21:29:13.815713'),
-    (12, 2, 'public', 'cs_products', 'Catalogo de productos referenciado en las llamadas de servicio.', 110, '2026-09-26 21:29:13.815713'),
-    (13, 2, 'public', 'cs_customer_products', 'Relacion entre clientes y productos consultados en servicio.', 101, '2026-09-26 21:29:13.815713');
+    (1, 1, 'classicmodels', 'customers', 'Clientes de la compania que realizan ordenes de compra.', 122, '2026-09-26 21:59:39.963732'),
+    (2, 1, 'classicmodels', 'employees', 'Empleados de la compania, incluye representantes de ventas y su jerarquia.', 23, '2026-09-26 21:59:39.963732'),
+    (3, 1, 'classicmodels', 'offices', 'Oficinas o sedes fisicas de la compania.', 7, '2026-09-26 21:59:39.963732'),
+    (4, 1, 'classicmodels', 'orderdetails', 'Detalle (lineas) de cada orden de compra: producto, cantidad y precio.', 2996, '2026-09-26 21:59:39.963732'),
+    (5, 1, 'classicmodels', 'orders', 'Encabezado de las ordenes de compra realizadas por los clientes.', 326, '2026-09-26 21:59:39.963732'),
+    (6, 1, 'classicmodels', 'payments', 'Pagos realizados por los clientes asociados a sus ordenes de compra.', 273, '2026-09-26 21:59:39.963732'),
+    (7, 1, 'classicmodels', 'productlines', 'Lineas o categorias de productos.', 7, '2026-09-26 21:59:39.963732'),
+    (8, 1, 'classicmodels', 'products', 'Catalogo de productos que la compania vende.', 110, '2026-09-26 21:59:39.963732'),
+    (9, 2, 'public', 'cs_customers', 'Clientes registrados en el sistema de call center.', 122, '2026-09-26 21:59:39.963732'),
+    (10, 2, 'public', 'cs_customer_calls', 'Registro de llamadas de servicio al cliente.', 108, '2026-09-26 21:59:39.963732'),
+    (11, 2, 'public', 'cs_employees', 'Empleados que atienden llamadas en el call center.', 30, '2026-09-26 21:59:39.963732'),
+    (12, 2, 'public', 'cs_products', 'Catalogo de productos referenciado en las llamadas de servicio.', 110, '2026-09-26 21:59:39.963732'),
+    (13, 2, 'public', 'cs_customer_products', 'Relacion entre clientes y productos consultados en servicio.', 101, '2026-09-26 21:59:39.963732');
 
 -- db_column: 85 filas
 INSERT INTO db_column (column_id, table_id, column_name, ordinal_position, data_type, native_data_type, is_nullable, is_primary_key, is_foreign_key, fk_ref_column_id, loaded_at) VALUES
-    (1, 1, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (2, 1, 'customerName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (3, 1, 'contactLastName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (4, 1, 'contactFirstName', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (5, 1, 'phone', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (6, 1, 'addressLine1', 6, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (7, 1, 'addressLine2', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (8, 1, 'city', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (9, 1, 'state', 9, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (10, 1, 'postalCode', 10, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (11, 1, 'country', 11, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (13, 1, 'creditLimit', 13, 'DECIMAL', 'DECIMAL(10, 2)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (14, 2, 'employeeNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (15, 2, 'lastName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (16, 2, 'firstName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (17, 2, 'extension', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (18, 2, 'email', 5, 'VARCHAR(100)', 'VARCHAR(100)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (21, 2, 'jobTitle', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (22, 3, 'officeCode', 1, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (23, 3, 'city', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (24, 3, 'phone', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (25, 3, 'addressLine1', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (26, 3, 'addressLine2', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (27, 3, 'state', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (28, 3, 'country', 7, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (29, 3, 'postalCode', 8, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (30, 3, 'territory', 9, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (33, 4, 'quantityOrdered', 3, 'INTEGER', 'INTEGER', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (34, 4, 'priceEach', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (35, 4, 'orderLineNumber', 5, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (36, 5, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (37, 5, 'orderDate', 2, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (38, 5, 'requiredDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (39, 5, 'shippedDate', 4, 'DATE', 'DATE', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (40, 5, 'status', 5, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (41, 5, 'comments', 6, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (44, 6, 'checkNumber', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (45, 6, 'paymentDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (46, 6, 'amount', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (47, 7, 'productLine', 1, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (48, 7, 'textDescription', 2, 'VARCHAR(4000)', 'VARCHAR(4000)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (49, 7, 'htmlDescription', 3, 'TEXT', 'MEDIUMTEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (50, 7, 'image', 4, 'BINARY', 'MEDIUMBLOB', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (51, 8, 'productCode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (52, 8, 'productName', 2, 'VARCHAR(70)', 'VARCHAR(70)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (54, 8, 'productScale', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (55, 8, 'productVendor', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (56, 8, 'productDescription', 6, 'TEXT', 'TEXT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (57, 8, 'quantityInStock', 7, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (58, 8, 'buyPrice', 8, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (59, 8, 'MSRP', 9, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (60, 9, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (61, 9, 'contactlastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (62, 9, 'contactfirstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (63, 9, 'phone', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (64, 9, 'addressline1', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (65, 9, 'addressline2', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (66, 9, 'city', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (67, 9, 'state', 8, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (68, 9, 'postalcode', 9, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (69, 9, 'country', 10, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (73, 10, 'text', 4, 'VARCHAR(200)', 'VARCHAR(200)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (74, 10, 'date', 5, 'TIMESTAMP', 'TIMESTAMP', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (75, 11, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (76, 11, 'lastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (77, 11, 'firstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (78, 11, 'email', 4, 'VARCHAR(100)', 'VARCHAR(100)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (79, 12, 'productcode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (80, 12, 'productname', 2, 'VARCHAR(70)', 'VARCHAR(70)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (81, 12, 'productscale', 3, 'VARCHAR(10)', 'VARCHAR(10)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (82, 12, 'productvendor', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (83, 12, 'productdescription', 5, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:29:13.815713'),
-    (19, 2, 'officeCode', 6, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, TRUE, 22, '2026-09-26 21:29:13.815713'),
-    (12, 1, 'salesRepEmployeeNumber', 12, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 21:29:13.815713'),
-    (20, 2, 'reportsTo', 7, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 21:29:13.815713'),
-    (31, 4, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 36, '2026-09-26 21:29:13.815713'),
-    (32, 4, 'productCode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 51, '2026-09-26 21:29:13.815713'),
-    (42, 5, 'customerNumber', 7, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 1, '2026-09-26 21:29:13.815713'),
-    (43, 6, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 1, '2026-09-26 21:29:13.815713'),
-    (53, 8, 'productLine', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, TRUE, 47, '2026-09-26 21:29:13.815713'),
-    (70, 10, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 75, '2026-09-26 21:29:13.815713'),
-    (71, 10, 'customernumber', 2, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 60, '2026-09-26 21:29:13.815713'),
-    (72, 10, 'productcode', 3, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, TRUE, 79, '2026-09-26 21:29:13.815713'),
-    (84, 13, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 60, '2026-09-26 21:29:13.815713'),
-    (85, 13, 'productcode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 79, '2026-09-26 21:29:13.815713');
+    (1, 1, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (2, 1, 'customerName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (3, 1, 'contactLastName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (4, 1, 'contactFirstName', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (5, 1, 'phone', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (6, 1, 'addressLine1', 6, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (7, 1, 'addressLine2', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (8, 1, 'city', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (9, 1, 'state', 9, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (10, 1, 'postalCode', 10, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (11, 1, 'country', 11, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (13, 1, 'creditLimit', 13, 'DECIMAL', 'DECIMAL(10, 2)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (14, 2, 'employeeNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (15, 2, 'lastName', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (16, 2, 'firstName', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (17, 2, 'extension', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (18, 2, 'email', 5, 'VARCHAR(100)', 'VARCHAR(100)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (21, 2, 'jobTitle', 8, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (22, 3, 'officeCode', 1, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (23, 3, 'city', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (24, 3, 'phone', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (25, 3, 'addressLine1', 4, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (26, 3, 'addressLine2', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (27, 3, 'state', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (28, 3, 'country', 7, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (29, 3, 'postalCode', 8, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (30, 3, 'territory', 9, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (33, 4, 'quantityOrdered', 3, 'INTEGER', 'INTEGER', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (34, 4, 'priceEach', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (35, 4, 'orderLineNumber', 5, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (36, 5, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (37, 5, 'orderDate', 2, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (38, 5, 'requiredDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (39, 5, 'shippedDate', 4, 'DATE', 'DATE', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (40, 5, 'status', 5, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (41, 5, 'comments', 6, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (44, 6, 'checkNumber', 2, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (45, 6, 'paymentDate', 3, 'DATE', 'DATE', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (46, 6, 'amount', 4, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (47, 7, 'productLine', 1, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (48, 7, 'textDescription', 2, 'VARCHAR(4000)', 'VARCHAR(4000)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (49, 7, 'htmlDescription', 3, 'TEXT', 'MEDIUMTEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (50, 7, 'image', 4, 'BINARY', 'MEDIUMBLOB', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (51, 8, 'productCode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (52, 8, 'productName', 2, 'VARCHAR(70)', 'VARCHAR(70)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (54, 8, 'productScale', 4, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (55, 8, 'productVendor', 5, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (56, 8, 'productDescription', 6, 'TEXT', 'TEXT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (57, 8, 'quantityInStock', 7, 'INTEGER', 'SMALLINT', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (58, 8, 'buyPrice', 8, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (59, 8, 'MSRP', 9, 'DECIMAL', 'DECIMAL(10, 2)', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (60, 9, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (61, 9, 'contactlastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (62, 9, 'contactfirstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (63, 9, 'phone', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (64, 9, 'addressline1', 5, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (65, 9, 'addressline2', 6, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (66, 9, 'city', 7, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (67, 9, 'state', 8, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (68, 9, 'postalcode', 9, 'VARCHAR(15)', 'VARCHAR(15)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (69, 9, 'country', 10, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (73, 10, 'text', 4, 'VARCHAR(200)', 'VARCHAR(200)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (74, 10, 'date', 5, 'TIMESTAMP', 'TIMESTAMP', FALSE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (75, 11, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (76, 11, 'lastname', 2, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (77, 11, 'firstname', 3, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (78, 11, 'email', 4, 'VARCHAR(100)', 'VARCHAR(100)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (79, 12, 'productcode', 1, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (80, 12, 'productname', 2, 'VARCHAR(70)', 'VARCHAR(70)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (81, 12, 'productscale', 3, 'VARCHAR(10)', 'VARCHAR(10)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (82, 12, 'productvendor', 4, 'VARCHAR(50)', 'VARCHAR(50)', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (83, 12, 'productdescription', 5, 'TEXT', 'TEXT', TRUE, FALSE, FALSE, NULL, '2026-09-26 21:59:39.963732'),
+    (19, 2, 'officeCode', 6, 'VARCHAR(10)', 'VARCHAR(10)', FALSE, FALSE, TRUE, 22, '2026-09-26 21:59:39.963732'),
+    (12, 1, 'salesRepEmployeeNumber', 12, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 21:59:39.963732'),
+    (20, 2, 'reportsTo', 7, 'INTEGER', 'INTEGER', TRUE, FALSE, TRUE, 14, '2026-09-26 21:59:39.963732'),
+    (31, 4, 'orderNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 36, '2026-09-26 21:59:39.963732'),
+    (32, 4, 'productCode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 51, '2026-09-26 21:59:39.963732'),
+    (42, 5, 'customerNumber', 7, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 1, '2026-09-26 21:59:39.963732'),
+    (43, 6, 'customerNumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 1, '2026-09-26 21:59:39.963732'),
+    (53, 8, 'productLine', 3, 'VARCHAR(50)', 'VARCHAR(50)', FALSE, FALSE, TRUE, 47, '2026-09-26 21:59:39.963732'),
+    (70, 10, 'employeenumber', 1, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 75, '2026-09-26 21:59:39.963732'),
+    (71, 10, 'customernumber', 2, 'INTEGER', 'INTEGER', FALSE, FALSE, TRUE, 60, '2026-09-26 21:59:39.963732'),
+    (72, 10, 'productcode', 3, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, FALSE, TRUE, 79, '2026-09-26 21:59:39.963732'),
+    (84, 13, 'customernumber', 1, 'INTEGER', 'INTEGER', FALSE, TRUE, TRUE, 60, '2026-09-26 21:59:39.963732'),
+    (85, 13, 'productcode', 2, 'VARCHAR(15)', 'VARCHAR(15)', FALSE, TRUE, TRUE, 79, '2026-09-26 21:59:39.963732');
 
 -- business_entity: 8 filas
 INSERT INTO business_entity (entity_id, entity_name, entity_description, data_domain) VALUES
@@ -641,16 +641,16 @@ INSERT INTO column_business_mapping (mapping_id, column_id, attribute_id) VALUES
 
 -- dw_object: 10 filas
 INSERT INTO dw_object (dw_object_id, object_name, object_type, grain, description, is_conformed, scd_type, scd_justificacion, row_count, loaded_at) VALUES
-    (1, 'dim_cliente', 'DIMENSION', NULL, 'Dimension de cliente. Conformada entre classicmodels y customerservice, que solapan al 100% por customerNumber. Las banderas presente_en_ventas y presente_en_servicio indican en que fuente aparece cada cliente.', TRUE, 'TIPO_1', 'El origen es un snapshot estatico sin captura de cambios, de modo que no hay versiones que preservar. Con un feed incremental seria la primera candidata a TIPO 2: el limite de credito y la direccion cambian y afectan el analisis historico.', 122, '2026-09-26 21:29:37.564898'),
-    (2, 'dim_empleado', 'DIMENSION', NULL, 'Dimension de empleado. NO conformada: las dos fuentes tienen solape 0% en la llave. Usa llave de negocio compuesta (numero_empleado, sistema_origen) para que ambas poblaciones convivan sin colisionar.', FALSE, 'TIPO_1', 'El origen no registra cambios de cargo ni de oficina, asi que no hay transiciones que versionar.', 53, '2026-09-26 21:29:37.564898'),
-    (3, 'dim_estado_orden', 'DIMENSION', NULL, 'Dimension de estado de la orden. es_efectiva distingue las ventas cerradas de las canceladas, en disputa o en espera.', FALSE, 'TIPO_1', 'Dimension derivada de un dominio cerrado de seis valores; no cambia entre cargas.', 6, '2026-09-26 21:29:37.564898'),
-    (4, 'dim_oficina', 'DIMENSION', NULL, 'Dimension de oficina. Exclusiva de classicmodels: la sede desde la que trabaja el representante de ventas.', FALSE, 'TIPO_1', 'Catalogo de siete sedes, estable y sin historial en el origen.', 7, '2026-09-26 21:29:37.564898'),
-    (5, 'dim_producto', 'DIMENSION', NULL, 'Dimension de producto. Conformada entre las dos fuentes, que solapan al 100% por productCode. Incluye la linea de producto desnormalizada.', TRUE, 'TIPO_1', 'Mismo motivo que dim_cliente. Con datos vivos convendria TIPO 2 para que el margen de una venta antigua use el precio de compra vigente entonces, no el de hoy.', 110, '2026-09-26 21:29:37.564898'),
-    (6, 'dim_tiempo', 'DIMENSION', NULL, 'Dimension de tiempo generada dia a dia entre 2003 y 2005. Conformada: la comparten los dos hechos.', TRUE, 'TIPO_1', 'Dimension generada y deterministica: una fecha nunca cambia de atributos, asi que el concepto de historial no aplica.', 1096, '2026-09-26 21:29:37.564898'),
-    (7, 'fact_llamadas_servicio', 'FACT', 'Una llamada al centro de servicio al cliente.', 'Hecho secundario. Registra cada llamada de customerservice, relacionada con el cliente que llamo, el producto consultado y el agente que atendio.', FALSE, NULL, NULL, 108, '2026-09-26 21:29:37.564898'),
-    (8, 'fact_ventas', 'FACT', 'Una linea de una orden de compra.', 'Hecho principal del almacen. Registra cada linea de detalle de las ordenes de classicmodels, con sus medidas de cantidad, monto, costo y margen.', FALSE, NULL, NULL, 2996, '2026-09-26 21:29:37.564898'),
-    (9, 'vw_interaccion_cliente_producto', 'VIEW', 'Cliente x producto x mes.', 'Data mart (schema dm) que cruza los dos hechos al grano cliente-producto-mes. Responde que productos generan mas llamadas por unidad vendida, pregunta que ninguna fuente contesta por si sola.', FALSE, NULL, NULL, 3100, '2026-09-26 21:29:37.564898'),
-    (10, 'vw_ventas_mensuales_linea', 'VIEW', 'Mes x linea de producto.', 'Data mart (schema dm) de desempeno comercial: ordenes, unidades, monto y margen por mes y linea de producto, solo ventas efectivas.', FALSE, NULL, NULL, 180, '2026-09-26 21:29:37.564898');
+    (1, 'dim_cliente', 'DIMENSION', NULL, 'Dimension de cliente. Conformada entre classicmodels y customerservice, que solapan al 100% por customerNumber. Las banderas presente_en_ventas y presente_en_servicio indican en que fuente aparece cada cliente.', TRUE, 'TIPO_1', 'El origen es un snapshot estatico sin captura de cambios, de modo que no hay versiones que preservar. Con un feed incremental seria la primera candidata a TIPO 2: el limite de credito y la direccion cambian y afectan el analisis historico.', 122, '2026-09-26 21:59:58.002388'),
+    (2, 'dim_empleado', 'DIMENSION', NULL, 'Dimension de empleado. NO conformada: las dos fuentes tienen solape 0% en la llave. Usa llave de negocio compuesta (numero_empleado, sistema_origen) para que ambas poblaciones convivan sin colisionar.', FALSE, 'TIPO_1', 'El origen no registra cambios de cargo ni de oficina, asi que no hay transiciones que versionar.', 53, '2026-09-26 21:59:58.002388'),
+    (3, 'dim_estado_orden', 'DIMENSION', NULL, 'Dimension de estado de la orden. es_efectiva distingue las ventas cerradas de las canceladas, en disputa o en espera.', FALSE, 'TIPO_1', 'Dimension derivada de un dominio cerrado de seis valores; no cambia entre cargas.', 6, '2026-09-26 21:59:58.002388'),
+    (4, 'dim_oficina', 'DIMENSION', NULL, 'Dimension de oficina. Exclusiva de classicmodels: la sede desde la que trabaja el representante de ventas.', FALSE, 'TIPO_1', 'Catalogo de siete sedes, estable y sin historial en el origen.', 7, '2026-09-26 21:59:58.002388'),
+    (5, 'dim_producto', 'DIMENSION', NULL, 'Dimension de producto. Conformada entre las dos fuentes, que solapan al 100% por productCode. Incluye la linea de producto desnormalizada.', TRUE, 'TIPO_1', 'Mismo motivo que dim_cliente. Con datos vivos convendria TIPO 2 para que el margen de una venta antigua use el precio de compra vigente entonces, no el de hoy.', 110, '2026-09-26 21:59:58.002388'),
+    (6, 'dim_tiempo', 'DIMENSION', NULL, 'Dimension de tiempo generada dia a dia, por anios completos, sobre el periodo que cubren las ventas y las llamadas (2003 a 2005 con los datos actuales). Conformada: la comparten los dos hechos.', TRUE, 'TIPO_1', 'Dimension generada y deterministica: una fecha nunca cambia de atributos, asi que el concepto de historial no aplica.', 1096, '2026-09-26 21:59:58.002388'),
+    (7, 'fact_llamadas_servicio', 'FACT', 'Una llamada al centro de servicio al cliente.', 'Hecho secundario. Registra cada llamada de customerservice, relacionada con el cliente que llamo, el producto consultado y el agente que atendio.', FALSE, NULL, NULL, 108, '2026-09-26 21:59:58.002388'),
+    (8, 'fact_ventas', 'FACT', 'Una linea de una orden de compra.', 'Hecho principal del almacen. Registra cada linea de detalle de las ordenes de classicmodels, con sus medidas de cantidad, monto, costo y margen.', FALSE, NULL, NULL, 2996, '2026-09-26 21:59:58.002388'),
+    (9, 'vw_interaccion_cliente_producto', 'VIEW', 'Cliente x producto x mes.', 'Data mart (schema dm) que cruza los dos hechos al grano cliente-producto-mes. Responde que productos generan mas llamadas por unidad vendida, pregunta que ninguna fuente contesta por si sola.', FALSE, NULL, NULL, 3100, '2026-09-26 21:59:58.002388'),
+    (10, 'vw_ventas_mensuales_linea', 'VIEW', 'Mes x linea de producto.', 'Data mart (schema dm) de desempeno comercial: ordenes, unidades, monto y margen por mes y linea de producto, solo ventas efectivas.', FALSE, NULL, NULL, 180, '2026-09-26 21:59:58.002388');
 
 -- dw_measure: 9 filas
 INSERT INTO dw_measure (dw_measure_id, dw_object_id, measure_name, data_type, additivity, formula, description) VALUES
@@ -809,16 +809,19 @@ INSERT INTO dw_lineage (dw_lineage_id, source_column_id, target_measure_id, targ
 -- etl_process: 3 filas
 INSERT INTO etl_process (etl_process_id, process_name, tool, source_systems, target_system, description) VALUES
     (1, 'etl_dw_staging', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'classicmodels (MySQL), customerservice (PostgreSQL)', 'staging (PostgreSQL)', 'Capas 1 a 4: extrae las 13 tablas de las dos fuentes una sola vez, las perfila, evalua calidad tecnica y de negocio, y separa fisicamente limpios de rechazados.'),
-    (2, 'etl_dw_dimensions', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de dimensiones: conforma por area tematica desde Clean Staging y carga las seis dimensiones.'),
-    (3, 'etl_dw_facts', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 1); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de hechos: conforma ventas y servicio desde Clean Staging, resuelve llaves subrogadas y carga los dos hechos.');
+    (2, 'etl_dw_dimensions', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 4); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de dimensiones: conforma por area tematica desde Clean Staging y carga las seis dimensiones.'),
+    (3, 'etl_dw_facts', 'Python 3.11 + SQLAlchemy 2.1 + pandas 3.0', 'staging_dw.stg_clean (run 4); las fuentes no se releen', 'dw (PostgreSQL)', 'Capas 5 a 7 para el modelo de hechos: conforma ventas y servicio desde Clean Staging, resuelve llaves subrogadas y carga los dos hechos.');
 
--- etl_execution: 3 filas
+-- etl_execution: 6 filas
 INSERT INTO etl_execution (etl_execution_id, etl_process_id, run_id, started_at, finished_at, status, rows_read, rows_written, rows_rejected, error_message) VALUES
-    (1, 1, 1, '2026-09-26 21:29:26.734795', '2026-09-26 21:29:26.734795', 'OK', 4335, 4335, 0, NULL),
-    (2, 2, 2, '2026-09-26 21:29:30.509816', '2026-09-26 21:29:30.509816', 'OK', 1394, 1394, 0, NULL),
-    (3, 3, 3, '2026-09-26 21:29:36.976465', '2026-09-26 21:29:36.976465', 'OK', 3104, 3104, 0, NULL);
+    (1, 1, 1, '2026-09-26 21:59:49.942425', '2026-09-26 21:59:49.942425', 'OK', 4335, 4335, 0, NULL),
+    (2, 2, 2, '2026-09-26 21:59:52.856350', '2026-09-26 21:59:52.856350', 'OK', 1394, 1394, 0, NULL),
+    (3, 3, 3, '2026-09-26 21:59:57.335952', '2026-09-26 21:59:57.335952', 'OK', 3104, 3104, 0, NULL),
+    (4, 1, 4, '2026-09-26 22:00:09.310709', '2026-09-26 22:00:09.310709', 'OK', 4335, 4335, 0, NULL),
+    (5, 2, 5, '2026-09-26 22:00:13.490481', '2026-09-26 22:00:13.490481', 'OK', 1394, 1394, 0, NULL),
+    (6, 3, 6, '2026-09-26 22:00:18.230703', '2026-09-26 22:00:18.230703', 'OK', 3104, 3104, 0, NULL);
 
--- dq_rule: 20 filas
+-- dq_rule: 22 filas
 INSERT INTO dq_rule (dq_rule_id, rule_name, rule_type, criterio_dama, clase_dq, capa, source_column_id, expression, severity, resolution) VALUES
     (1, 'cliente_conformidad_fuentes', 'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'TRANSFORMATION', 1, 'Todo customerNumber de classicmodels existe en cs_customers', 'BLOQUEANTE', 'Permite que dim_cliente sea conformada y que los dos hechos la compartan.'),
     (2, 'cliente_direccion_linea2_nula', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'TRANSFORMATION', 7, 'pct_nulos(addressLine2) < 50', 'INFORMATIVA', 'Se consolida con addressLine1 en el atributo direccion_completa.'),
@@ -830,38 +833,63 @@ INSERT INTO dq_rule (dq_rule_id, rule_name, rule_type, criterio_dama, clase_dq, 
     (8, 'estado_orden_no_efectivo', 'INTEGRIDAD', 'EXACTITUD', 'NEGOCIO', 'TRANSFORMATION', 40, 'status en (Cancelled, Disputed, On Hold) no es venta cerrada', 'INFORMATIVA', 'Se cargan todas las ordenes; dim_estado_orden.es_efectiva permite excluirlas de los reportes sin borrarlas del almacen.'),
     (9, 'orden_fecha_envio_nula', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'TRANSFORMATION', 39, 'shippedDate no nula', 'INFORMATIVA', 'Las ordenes aun no despachadas quedan con dias_hasta_envio NULL; dim_estado_orden explica el motivo.'),
     (10, 'orden_comentarios_nulos', 'COMPLETITUD', 'RELEVANCIA', 'NEGOCIO', 'TRANSFORMATION', 41, 'pct_nulos(comments) < 50', 'INFORMATIVA', 'Texto libre sin valor analitico: no se lleva a fact_ventas.'),
-    (11, 'envio_consistente_con_estado', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 40, 'status = ''Shipped'' implica shippedDate no nula', 'BLOQUEANTE', 'El registro va a la pila de rechazados.'),
-    (12, 'secuencia_de_fechas', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 39, 'shippedDate >= orderDate y requiredDate >= orderDate', 'BLOQUEANTE', 'El registro va a la pila de rechazados.'),
-    (13, 'productline_columnas_vacias', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'TRANSFORMATION', 49, 'COUNT(htmlDescription) = 0 AND COUNT(image) = 0', 'INFORMATIVA', 'Las dos columnas se extraen (traer todo) pero no pasan a dim_producto.'),
-    (14, 'producto_conformidad_fuentes', 'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'TRANSFORMATION', 51, 'Todo productCode de classicmodels existe en cs_products', 'BLOQUEANTE', 'Permite que dim_producto sea conformada y que los dos hechos la compartan.'),
-    (15, 'consistencia_entre_fuentes_producto', 'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', 51, 'cs_products coincide con products en nombre, escala y proveedor', 'ADVERTENCIA', 'Si difieren, classicmodels es la fuente autoritativa de dim_producto; la diferencia queda trazada.'),
-    (16, 'precio_sugerido_coherente', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 59, 'MSRP >= buyPrice', 'ADVERTENCIA', 'El registro pasa; se traza para revision del area comercial.'),
-    (17, 'almacen_frescura_de_carga', 'FRESCURA', 'OPORTUNIDAD', 'TECNICA', 'MONITOREO', NULL, 'now() - ultima carga exitosa en etl_execution < 24 horas', 'ADVERTENCIA', 'Si la ultima carga exitosa supera las 24 horas, los reportes estan mostrando datos vencidos y hay que relanzar el pipeline.'),
-    (18, 'integridad_referencial', 'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, 'Toda referencia apunta a un registro existente, dentro de cada fuente y entre fuentes (llamadas contra el maestro de clientes y productos de classicmodels)', 'BLOQUEANTE', 'El registro va a la pila de rechazados: cargarlo produciria un hecho huerfano en el almacen.'),
-    (19, 'tipo_de_dato_valido', 'FORMATO', 'EXACTITUD', 'TECNICA', 'DATA_QUALITY', NULL, 'Las columnas de fecha se interpretan como fecha y las numericas como numero', 'BLOQUEANTE', 'El registro va a la pila de rechazados: un valor que no se puede interpretar no se puede transformar.'),
-    (20, 'campos_obligatorios', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'DATA_QUALITY', NULL, 'Toda columna con is_nullable = FALSE en db_column tiene valor', 'BLOQUEANTE', 'El registro va a la pila de rechazados. Las columnas obligatorias se leen del repositorio de metadatos, no estan escritas en el ETL.');
+    (11, 'fecha_no_futura', 'RANGO', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 37, 'orderDate, paymentDate y la fecha de la llamada <= fecha de la carga', 'BLOQUEANTE', 'El registro va a la pila de rechazados: un evento no puede ocurrir despues de la carga. dim_tiempo se genera sobre el periodo que cubren las ventas y las llamadas, asi que una fecha errada lo extenderia.'),
+    (12, 'envio_consistente_con_estado', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 40, 'status = ''Shipped'' implica shippedDate no nula', 'BLOQUEANTE', 'El registro va a la pila de rechazados.'),
+    (13, 'secuencia_de_fechas', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 39, 'shippedDate >= orderDate y requiredDate >= orderDate', 'BLOQUEANTE', 'El registro va a la pila de rechazados.'),
+    (14, 'productline_columnas_vacias', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'TRANSFORMATION', 49, 'COUNT(htmlDescription) = 0 AND COUNT(image) = 0', 'INFORMATIVA', 'Las dos columnas se extraen (traer todo) pero no pasan a dim_producto.'),
+    (15, 'producto_conformidad_fuentes', 'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'TRANSFORMATION', 51, 'Todo productCode de classicmodels existe en cs_products', 'BLOQUEANTE', 'Permite que dim_producto sea conformada y que los dos hechos la compartan.'),
+    (16, 'consistencia_entre_fuentes_producto', 'CONFORMIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', 51, 'cs_products coincide con products en nombre, escala y proveedor', 'ADVERTENCIA', 'Si difieren, classicmodels es la fuente autoritativa de dim_producto; la diferencia queda trazada.'),
+    (17, 'precio_sugerido_coherente', 'COHERENCIA', 'EXACTITUD', 'NEGOCIO', 'DATA_QUALITY', 59, 'MSRP >= buyPrice', 'ADVERTENCIA', 'El registro pasa; se traza para revision del area comercial.'),
+    (18, 'almacen_frescura_de_carga', 'FRESCURA', 'OPORTUNIDAD', 'TECNICA', 'MONITOREO', NULL, 'now() - ultima carga exitosa en etl_execution < 24 horas', 'ADVERTENCIA', 'Si la ultima carga exitosa supera las 24 horas, los reportes estan mostrando datos vencidos y hay que relanzar el pipeline.'),
+    (19, 'padre_rechazado', 'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, 'Toda referencia apunta a un registro que no fue rechazado (se evalua despues de las demas reglas)', 'BLOQUEANTE', 'El registro sigue a su padre a la pila de rechazados, en cascada (cliente -> ordenes -> lineas): si pasara, apuntaria a un miembro que no llega al almacen y detendria la carga de hechos.'),
+    (20, 'integridad_referencial', 'INTEGRIDAD', 'CONSISTENCIA', 'NEGOCIO', 'DATA_QUALITY', NULL, 'Toda referencia apunta a un registro existente, dentro de cada fuente y entre fuentes (llamadas contra el maestro de clientes y productos de classicmodels)', 'BLOQUEANTE', 'El registro va a la pila de rechazados: cargarlo produciria un hecho huerfano en el almacen.'),
+    (21, 'tipo_de_dato_valido', 'FORMATO', 'EXACTITUD', 'TECNICA', 'DATA_QUALITY', NULL, 'Las columnas de fecha se interpretan como fecha y las numericas como numero', 'BLOQUEANTE', 'El registro va a la pila de rechazados: un valor que no se puede interpretar no se puede transformar.'),
+    (22, 'campos_obligatorios', 'COMPLETITUD', 'EXHAUSTIVIDAD', 'TECNICA', 'DATA_QUALITY', NULL, 'Toda columna con is_nullable = FALSE en db_column tiene valor', 'BLOQUEANTE', 'El registro va a la pila de rechazados. Las columnas obligatorias se leen del repositorio de metadatos, no estan escritas en el ETL.');
 
--- dq_result: 19 filas
+-- dq_result: 42 filas
 INSERT INTO dq_result (dq_result_id, dq_rule_id, etl_execution_id, evaluated_at, rows_evaluated, rows_failed, passed) VALUES
-    (1, 20, 1, '2026-09-26 21:29:26.734795', 4335, 0, TRUE),
-    (2, 19, 1, '2026-09-26 21:29:26.734795', 3935, 0, TRUE),
-    (3, 6, 1, '2026-09-26 21:29:26.734795', 53, 0, TRUE),
-    (4, 18, 1, '2026-09-26 21:29:26.734795', 4059, 0, TRUE),
-    (5, 7, 1, '2026-09-26 21:29:26.734795', 3501, 0, TRUE),
-    (6, 12, 1, '2026-09-26 21:29:26.734795', 326, 0, TRUE),
-    (7, 11, 1, '2026-09-26 21:29:26.734795', 326, 0, TRUE),
-    (8, 16, 1, '2026-09-26 21:29:26.734795', 110, 0, TRUE),
-    (9, 4, 1, '2026-09-26 21:29:26.734795', 122, 22, FALSE),
-    (10, 3, 1, '2026-09-26 21:29:26.734795', 122, 0, TRUE),
-    (11, 15, 1, '2026-09-26 21:29:26.734795', 110, 0, TRUE),
-    (12, 8, 2, '2026-09-26 21:29:30.509816', 6, 3, FALSE),
-    (13, 2, 2, '2026-09-26 21:29:30.509816', 122, 100, FALSE),
-    (14, 1, 2, '2026-09-26 21:29:30.509816', 122, 0, TRUE),
-    (15, 13, 2, '2026-09-26 21:29:30.509816', 2, 2, FALSE),
-    (16, 14, 2, '2026-09-26 21:29:30.509816', 110, 0, TRUE),
-    (17, 5, 2, '2026-09-26 21:29:30.509816', 53, 0, TRUE),
-    (18, 10, 3, '2026-09-26 21:29:36.976465', 326, 246, FALSE),
-    (19, 9, 3, '2026-09-26 21:29:36.976465', 2996, 141, FALSE);
+    (1, 22, 1, '2026-09-26 21:59:49.942425', 4335, 0, TRUE),
+    (2, 21, 1, '2026-09-26 21:59:49.942425', 3935, 0, TRUE),
+    (3, 6, 1, '2026-09-26 21:59:49.942425', 53, 0, TRUE),
+    (4, 20, 1, '2026-09-26 21:59:49.942425', 4059, 0, TRUE),
+    (5, 7, 1, '2026-09-26 21:59:49.942425', 3501, 0, TRUE),
+    (6, 13, 1, '2026-09-26 21:59:49.942425', 326, 0, TRUE),
+    (7, 12, 1, '2026-09-26 21:59:49.942425', 326, 0, TRUE),
+    (8, 11, 1, '2026-09-26 21:59:49.942425', 707, 0, TRUE),
+    (9, 17, 1, '2026-09-26 21:59:49.942425', 110, 0, TRUE),
+    (10, 4, 1, '2026-09-26 21:59:49.942425', 122, 22, FALSE),
+    (11, 3, 1, '2026-09-26 21:59:49.942425', 122, 0, TRUE),
+    (12, 16, 1, '2026-09-26 21:59:49.942425', 110, 0, TRUE),
+    (13, 19, 1, '2026-09-26 21:59:49.942425', 4059, 0, TRUE),
+    (14, 8, 2, '2026-09-26 21:59:52.856350', 6, 3, FALSE),
+    (15, 2, 2, '2026-09-26 21:59:52.856350', 122, 100, FALSE),
+    (16, 1, 2, '2026-09-26 21:59:52.856350', 122, 0, TRUE),
+    (17, 14, 2, '2026-09-26 21:59:52.856350', 2, 2, FALSE),
+    (18, 15, 2, '2026-09-26 21:59:52.856350', 110, 0, TRUE),
+    (19, 5, 2, '2026-09-26 21:59:52.856350', 53, 0, TRUE),
+    (20, 10, 3, '2026-09-26 21:59:57.335952', 326, 246, FALSE),
+    (21, 9, 3, '2026-09-26 21:59:57.335952', 2996, 141, FALSE),
+    (22, 22, 4, '2026-09-26 22:00:09.310709', 4335, 0, TRUE),
+    (23, 21, 4, '2026-09-26 22:00:09.310709', 3935, 0, TRUE),
+    (24, 6, 4, '2026-09-26 22:00:09.310709', 53, 0, TRUE),
+    (25, 20, 4, '2026-09-26 22:00:09.310709', 4059, 0, TRUE),
+    (26, 7, 4, '2026-09-26 22:00:09.310709', 3501, 0, TRUE),
+    (27, 13, 4, '2026-09-26 22:00:09.310709', 326, 0, TRUE),
+    (28, 12, 4, '2026-09-26 22:00:09.310709', 326, 0, TRUE),
+    (29, 11, 4, '2026-09-26 22:00:09.310709', 707, 0, TRUE),
+    (30, 17, 4, '2026-09-26 22:00:09.310709', 110, 0, TRUE),
+    (31, 4, 4, '2026-09-26 22:00:09.310709', 122, 22, FALSE),
+    (32, 3, 4, '2026-09-26 22:00:09.310709', 122, 0, TRUE),
+    (33, 16, 4, '2026-09-26 22:00:09.310709', 110, 0, TRUE),
+    (34, 19, 4, '2026-09-26 22:00:09.310709', 4059, 0, TRUE),
+    (35, 8, 5, '2026-09-26 22:00:13.490481', 6, 3, FALSE),
+    (36, 2, 5, '2026-09-26 22:00:13.490481', 122, 100, FALSE),
+    (37, 1, 5, '2026-09-26 22:00:13.490481', 122, 0, TRUE),
+    (38, 14, 5, '2026-09-26 22:00:13.490481', 2, 2, FALSE),
+    (39, 15, 5, '2026-09-26 22:00:13.490481', 110, 0, TRUE),
+    (40, 5, 5, '2026-09-26 22:00:13.490481', 53, 0, TRUE),
+    (41, 10, 6, '2026-09-26 22:00:18.230703', 326, 246, FALSE),
+    (42, 9, 6, '2026-09-26 22:00:18.230703', 2996, 141, FALSE);
 
 -- usage_herramienta: 3 filas
 INSERT INTO usage_herramienta (usage_herramienta_id, nombre, tipo, proposito, acceso) VALUES
@@ -910,14 +938,14 @@ INSERT INTO usage_consulta_objeto (usage_consulta_id, dw_object_id) VALUES
 
 -- usage_acceso_objeto: 8 filas
 INSERT INTO usage_acceso_objeto (usage_acceso_id, dw_object_id, medido_en, lecturas_secuenciales, filas_leidas_secuencial, lecturas_por_indice, filas_insertadas, filas_actualizadas, filas_borradas) VALUES
-    (1, 4, '2026-09-26 21:29:38.306631', 6, 14, 2996, 7, 0, 0),
-    (2, 2, '2026-09-26 21:29:38.306631', 7, 159, 3104, 53, 0, 0),
-    (3, 7, '2026-09-26 21:29:38.306631', 32, 216, 0, 108, 0, 0),
-    (4, 1, '2026-09-26 21:29:38.306631', 8, 488, 3104, 122, 0, 0),
-    (5, 5, '2026-09-26 21:29:38.306631', 9, 550, 3104, 110, 0, 0),
-    (6, 6, '2026-09-26 21:29:38.306631', 8, 4384, 3104, 1096, 0, 0),
-    (7, 3, '2026-09-26 21:29:38.306631', 7, 18, 2996, 6, 0, 0),
-    (8, 8, '2026-09-26 21:29:38.306631', 67, 8988, 0, 2996, 0, 0);
+    (1, 4, '2026-09-26 21:59:58.758545', 4, 14, 3003, 7, 0, 0),
+    (2, 2, '2026-09-26 21:59:58.758545', 3109, 46177, 53, 53, 0, 0),
+    (3, 7, '2026-09-26 21:59:58.758545', 12, 216, 0, 108, 0, 0),
+    (4, 1, '2026-09-26 21:59:58.758545', 3110, 156536, 122, 122, 0, 0),
+    (5, 5, '2026-09-26 21:59:58.758545', 7, 550, 3214, 110, 0, 0),
+    (6, 6, '2026-09-26 21:59:58.758545', 8, 6576, 4200, 1096, 0, 0),
+    (7, 3, '2026-09-26 21:59:58.758545', 5, 18, 3002, 6, 0, 0),
+    (8, 8, '2026-09-26 21:59:58.758545', 19, 8988, 0, 2996, 0, 0);
 
 -- Sync SERIAL sequences with the restored data
 SELECT setval(pg_get_serial_sequence('data_source', 'source_id'), 2, true);
@@ -931,9 +959,9 @@ SELECT setval(pg_get_serial_sequence('dw_measure', 'dw_measure_id'), 9, true);
 SELECT setval(pg_get_serial_sequence('dw_attribute', 'dw_attribute_id'), 68, true);
 SELECT setval(pg_get_serial_sequence('dw_lineage', 'dw_lineage_id'), 68, true);
 SELECT setval(pg_get_serial_sequence('etl_process', 'etl_process_id'), 3, true);
-SELECT setval(pg_get_serial_sequence('etl_execution', 'etl_execution_id'), 3, true);
-SELECT setval(pg_get_serial_sequence('dq_rule', 'dq_rule_id'), 20, true);
-SELECT setval(pg_get_serial_sequence('dq_result', 'dq_result_id'), 19, true);
+SELECT setval(pg_get_serial_sequence('etl_execution', 'etl_execution_id'), 6, true);
+SELECT setval(pg_get_serial_sequence('dq_rule', 'dq_rule_id'), 22, true);
+SELECT setval(pg_get_serial_sequence('dq_result', 'dq_result_id'), 42, true);
 SELECT setval(pg_get_serial_sequence('usage_herramienta', 'usage_herramienta_id'), 3, true);
 SELECT setval(pg_get_serial_sequence('usage_consulta', 'usage_consulta_id'), 8, true);
 SELECT setval(pg_get_serial_sequence('usage_acceso_objeto', 'usage_acceso_id'), 8, true);
