@@ -15,7 +15,13 @@ per rule type and checks that:
      to a missing or rejected record only warns: the record and its
      children go on, and the sales point to the special member
      'Desconocido';
-  6. no healthy record is flagged.
+  6. records that share the key of their table are caught: an exact copy
+     is rejected and the first one goes on (so its children too), and
+     two different versions of one key are both rejected (and their
+     children with them);
+  7. an order that is kept while some of its lines were rejected gets
+     a warning, since it reaches the warehouse incomplete;
+  8. no healthy record is flagged.
 
 It calls the same functions as the ETL on in-memory data and writes
 nothing; it only reads the NOT NULL columns from the metadata repository.
@@ -99,6 +105,14 @@ DATA = {
         {"productCode": "P2", "productName": "Barato", "productLine": "Cars",
          "productScale": "1:10", "productVendor": "V", "productDescription": "d",
          "quantityInStock": 5, "buyPrice": 30.0, "MSRP": 20.0},
+        # llave_duplicada (reject): two different versions of product P3,
+        # so both are rejected
+        {"productCode": "P3", "productName": "Version A", "productLine": "Cars",
+         "productScale": "1:10", "productVendor": "V", "productDescription": "d",
+         "quantityInStock": 5, "buyPrice": 10.0, "MSRP": 20.0},
+        {"productCode": "P3", "productName": "Version B", "productLine": "Cars",
+         "productScale": "1:10", "productVendor": "V", "productDescription": "d",
+         "quantityInStock": 5, "buyPrice": 10.0, "MSRP": 20.0},
     ]),
     "orders": batch("classicmodels", [
         {"orderNumber": 100, "orderDate": "2004-01-10", "requiredDate": "2004-01-20",
@@ -130,7 +144,7 @@ DATA = {
         {"orderNumber": 100, "productCode": "NO_EXISTE", "quantityOrdered": 2,
          "priceEach": 15.0, "orderLineNumber": 2},
         # valores_positivos (reject): negative quantity
-        {"orderNumber": 100, "productCode": "P1", "quantityOrdered": -3,
+        {"orderNumber": 100, "productCode": "P2", "quantityOrdered": -3,
          "priceEach": 15.0, "orderLineNumber": 3},
         # padre_rechazado (reject): line of order 101, rejected for its dates
         {"orderNumber": 101, "productCode": "P1", "quantityOrdered": 1,
@@ -139,12 +153,18 @@ DATA = {
         # customer was rejected
         {"orderNumber": 104, "productCode": "P1", "quantityOrdered": 1,
          "priceEach": 15.0, "orderLineNumber": 1},
+        # padre_rechazado (reject): its product P3 was rejected as llave_duplicada
+        {"orderNumber": 100, "productCode": "P3", "quantityOrdered": 1,
+         "priceEach": 15.0, "orderLineNumber": 4},
     ]),
     "cs_customers": batch("customerservice", [
         {"customernumber": 1, "phone": "1", "city": "c", "country": "p", "postalcode": "1"},
         # consistencia_entre_fuentes_cliente (warning): different city
         {"customernumber": 2, "phone": "2", "city": "OTRA", "country": "p", "postalcode": "2"},
         {"customernumber": 3, "phone": "3", "city": "c", "country": "p", "postalcode": "3"},
+        # registro_duplicado (reject): exact copy of customer 1. The first
+        # copy goes on, so the calls of customer 1 are not touched.
+        {"customernumber": 1, "phone": "1", "city": "c", "country": "p", "postalcode": "1"},
     ]),
     "cs_products": batch("customerservice", [
         {"productcode": "P1", "productname": "Auto", "productscale": "1:10", "productvendor": "V"},
@@ -162,6 +182,9 @@ DATA = {
         # both, but classicmodels rejected it
         {"employeenumber": 50, "customernumber": 3, "productcode": "P1",
          "text": "cliente rechazado", "date": "2004-02-01"},
+        # registro_duplicado (reject): exact copy of call 1
+        {"employeenumber": 50, "customernumber": 1, "productcode": "P1",
+         "text": "ok", "date": "2004-02-01"},
     ]),
 }
 
@@ -175,6 +198,9 @@ EXPECTED = {
     ("employees", 3):         ("campos_obligatorios", True),
     ("employees", 4):         ("referencia_opcional_no_resuelta", False),
     ("products", 2):          ("precio_sugerido_coherente", False),
+    ("products", 3):          ("llave_duplicada", True),
+    ("products", 4):          ("llave_duplicada", True),
+    ("orders", 1):            ("orden_con_lineas_rechazadas", False),
     ("orders", 2):            ("secuencia_de_fechas", True),
     ("orders", 3):            ("envio_consistente_con_estado", True),
     ("orders", 4):            ("tipo_de_dato_valido", True),
@@ -184,9 +210,12 @@ EXPECTED = {
     ("orderdetails", 3):      ("valores_positivos", True),
     ("orderdetails", 4):      ("padre_rechazado", True),
     ("orderdetails", 5):      ("padre_rechazado", True),
+    ("orderdetails", 6):      ("padre_rechazado", True),
     ("cs_customers", 2):      ("consistencia_entre_fuentes_cliente", False),
+    ("cs_customers", 4):      ("registro_duplicado", True),
     ("cs_customer_calls", 2): ("integridad_referencial", True),
     ("cs_customer_calls", 3): ("padre_rechazado", True),
+    ("cs_customer_calls", 4): ("registro_duplicado", True),
 }
 
 

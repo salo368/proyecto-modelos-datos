@@ -12,9 +12,13 @@ The batch has three tables, one per way Load writes:
      succeed, emptying the table and leaving that one call.
   3. dim_estado_orden with a column that does not exist, so it fails.
 
+The batch is recorded as a load, like a real one, so dim_lote_carga
+gets a row in the same transaction.
+
 With a per-table load, the warehouse would end up with the office
-changed and every call but one gone. With load_atomic, PostgreSQL rolls
-back the whole batch and every table keeps its previous content.
+changed, every call but one gone and a load recorded that never
+happened. With load_atomic, PostgreSQL rolls back the whole batch and
+every table keeps its previous content.
 
 The test compares row counts and an MD5 of each table's full content, so
 it also catches a change that keeps the same number of rows.
@@ -35,7 +39,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import DW  # noqa: E402
 from layer7_load import load_atomic  # noqa: E402
 
-WATCHED = ["dim_oficina", "dim_estado_orden", "fact_ventas", "fact_llamadas_servicio"]
+WATCHED = ["dim_oficina", "dim_estado_orden", "fact_ventas", "fact_llamadas_servicio",
+           "dim_lote_carga"]
+# A load key no real run uses (run ids are positive).
+TEST_LOAD = -999
 
 
 def snapshot():
@@ -65,8 +72,10 @@ def main():
                             "columna_que_no_existe": 1}])
 
     try:
+        staging_run = pd.read_sql("SELECT MAX(run_staging) AS r FROM dim_lote_carga", DW)["r"][0]
         load_atomic({"dim_oficina": office, "fact_llamadas_servicio": one_call,
-                     "dim_estado_orden": broken})
+                     "dim_estado_orden": broken},
+                    batch=(TEST_LOAD, "hechos", int(staging_run)))
         failed = False
     except Exception as e:
         failed = True

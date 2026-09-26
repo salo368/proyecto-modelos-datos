@@ -180,7 +180,8 @@ def quality_rules(rs):
                  SELECT MAX(e2.etl_execution_id)
                    FROM etl_execution e2 JOIN etl_process p
                      ON e2.etl_process_id = p.etl_process_id
-                  WHERE p.process_name = 'etl_dw_staging' AND e2.run_id = :r)
+                  WHERE p.process_name = 'etl_dw_staging' AND e2.run_id = :r
+                    AND e2.status = 'OK')
          ORDER BY r.clase_dq DESC, r.severity, r.rule_name""", r=rs)
 
 
@@ -320,7 +321,7 @@ def build():
          ["5 · Transformation", n(clean), n(sum(c for _, c in tr_d + tr_h)),
           f"{len(tr_d)} dimensiones y {len(tr_h)} hechos conformados"],
          ["6 · Load-Ready Publish", n(sum(c for _, c in tr_d + tr_h)),
-          n(sum(c for _, c in lr_d + lr_h)), "forma definitiva, sin transformaciones pendientes"],
+          n(sum(c for _, c in lr_d + lr_h)), "forma definitiva, verificada contra las tablas destino"],
          ["7 · Load", n(sum(c for _, c in lr_d + lr_h)), n(sum(loaded.values())),
           "dimensiones por llave de negocio y hechos reemplazados, cada rama "
           "en una sola transacción. Aparte, el almacén tiene "

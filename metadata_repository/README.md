@@ -13,7 +13,7 @@ Base PostgreSQL `metadata` que describe las dos fuentes, el glosario de negocio,
 | Linaje semántico | `column_business_mapping` (columna técnica ↔ atributo de negocio) | `seeds/business_metadata.sql` |
 | Técnicos del almacén | `dw_object`, `dw_measure`, `dw_attribute` | `etl/etl_dw_metadata.py` |
 | Linaje fuente → almacén | `dw_lineage` | `etl/etl_dw_metadata.py` |
-| Procesos | `etl_process`, `etl_execution` | Cada corrida del pipeline que carga el almacén (`pipeline/common.py`) |
+| Procesos | `etl_process`, `etl_execution` | Cada intento de cada proceso del pipeline (`pipeline/common.py`): se registra `EN_CURSO` al empezar y se cierra al terminar |
 | Calidad | `dq_rule` (catálogo), `dq_result` (resultado por corrida) | `seeds/dq_rules.sql` y cada corrida del ETL del almacén |
 | Uso | `usage_herramienta`, `usage_consulta`, `usage_consulta_objeto`, `usage_acceso_objeto`, vista `vw_perfil_uso` | `etl/etl_usage_metadata.py` |
 
@@ -28,7 +28,7 @@ El núcleo de la Entrega 1 son las seis primeras tablas ([`docs/img/metadata_cor
 | [`ddl/03_dw_extension.sql`](ddl/03_dw_extension.sql) | Tablas del almacén, linaje, procesos y calidad |
 | [`ddl/04_usage_extension.sql`](ddl/04_usage_extension.sql) | Tablas y vista de metadatos de uso |
 | [`seeds/business_metadata.sql`](seeds/business_metadata.sql) | 8 entidades de negocio, 47 atributos y 78 vínculos de linaje semántico |
-| [`seeds/dq_rules.sql`](seeds/dq_rules.sql) | Catálogo de 20 reglas de calidad |
+| [`seeds/dq_rules.sql`](seeds/dq_rules.sql) | Catálogo de 27 reglas de calidad |
 | [`etl/etl_source_metadata.py`](etl/etl_source_metadata.py) | ETL de metadatos técnicos de las fuentes |
 | [`etl/etl_dw_metadata.py`](etl/etl_dw_metadata.py) | Catálogo del almacén y linaje fuente → almacén |
 | [`etl/etl_usage_metadata.py`](etl/etl_usage_metadata.py) | Metadatos de uso declarados y medidos |
@@ -56,22 +56,31 @@ El núcleo de la Entrega 1 son las seis primeras tablas ([`docs/img/metadata_cor
 
 `etl_dw_metadata.py` reconstruye el catálogo en cada corrida introspeccionando la base `dw`:
 
-- `dw_object`: 2 hechos, 6 dimensiones y 2 vistas de data mart, con grano, descripción, si la dimensión es conformada, tipo de dimensión lentamente cambiante (todas son tipo 1, con su justificación en `scd_justificacion`) y conteo de filas.
+- `dw_object`: 2 hechos, 6 dimensiones, la dimensión de auditoría `dim_lote_carga` y 2 vistas de data mart, con grano, descripción, si la dimensión es conformada, tipo de dimensión lentamente cambiante (todas son tipo 1, con su justificación en `scd_justificacion`) y conteo de filas.
 - `dw_measure`: las 9 medidas con su aditividad (`ADITIVA`, `SEMI_ADITIVA`, `NO_ADITIVA`) y fórmula.
 - `dw_attribute`: el resto de columnas con su rol (`SURROGATE_KEY`, `BUSINESS_KEY`, `FOREIGN_KEY`, `DESCRIPTIVE`, `FLAG`, `DEGENERATE`).
-- `dw_lineage`: 48 vínculos columna fuente → campo del almacén con su regla de transformación.
+- `dw_lineage`: 68 vínculos columna fuente → campo del almacén con su regla de transformación. Las llaves subrogadas, `dim_tiempo`, `sistema_origen` y la auditoría de carga (`dim_lote_carga`, `lote_carga_key`) no tienen origen en las fuentes: los genera el almacén o el pipeline, y la consulta de cobertura de `queries/lineage_and_impact.sql` los reconoce como esperados.
 
 ## Calidad de datos
 
-`dq_rule` cataloga 20 reglas, cada una con su tipo, dimensión de calidad (`criterio_dama`), clase técnica o de negocio (`clase_dq`), capa donde se evalúa, severidad y resolución:
+`dq_rule` cataloga 27 reglas, cada una con su tipo, dimensión de calidad (`criterio_dama`), clase técnica o de negocio (`clase_dq`), capa donde se evalúa, severidad y resolución:
 
 | Capa | Reglas | Dónde se evalúa |
 |---|---|---|
-| `DATA_QUALITY` | 11 | Registro por registro en `pipeline/layer3_data_quality.py`; las bloqueantes rechazan el registro |
-| `TRANSFORMATION` | 8 | En `layer5_transform_dimensions.py` y `layer5_transform_facts.py`; documentan cómo el modelo resuelve un hallazgo del perfilamiento |
+| `DATA_QUALITY` | 17 | Registro por registro en `pipeline/layer3_data_quality.py`; las bloqueantes rechazan el registro |
+| `TRANSFORMATION` | 9 | En `layer5_transform_dimensions.py` y `layer5_transform_facts.py`; documentan cómo el modelo resuelve un hallazgo del perfilamiento |
 | `MONITOREO` | 1 | `almacen_frescura_de_carga` está catalogada pero ningún proceso la evalúa todavía |
 
-Cada corrida del ETL guarda en `dq_result` cuántas filas evaluó cada regla y cuántas fallaron. Con los datos originales ninguna regla bloqueante falla; la única advertencia de la capa `DATA_QUALITY` es `cliente_con_vendedor` (22 clientes sin representante).
+Cada corrida del ETL guarda en `dq_result` cuántas filas evaluó cada regla y cuántas fallaron. Las capas dejan esas cifras en `staging_dw.stg_dq_resumen` y el proceso las copia al terminar, así que una corrida retomada también reporta las reglas de las capas que no tuvo que repetir. Con los datos originales ninguna regla bloqueante falla; la única advertencia de la capa `DATA_QUALITY` es `cliente_con_vendedor` (22 clientes sin representante).
+
+## Procesos del pipeline
+
+`etl_process` guarda lo que no cambia entre corridas: nombre, herramienta, fuentes, destino y descripción. `etl_execution` guarda una fila por intento:
+
+- Se inserta `EN_CURSO` al empezar y se cierra con `OK` o `ERROR` al terminar, así que `finished_at - started_at` es la duración real.
+- `run_id` es la corrida en `staging_dw.etl_run` (base `staging`) y `run_origen`, la corrida de staging que leyó un proceso de dimensiones o de hechos.
+- Si el proceso muere sin cerrar su intento (por ejemplo, con `kill -9`), el siguiente proceso que arranca lo cierra como `ERROR` con el motivo «Abandonada».
+- Una corrida retomada con `--resume` agrega un intento nuevo bajo el mismo `run_id`: el historial muestra el intento que falló y el que terminó.
 
 ## Metadatos de uso
 

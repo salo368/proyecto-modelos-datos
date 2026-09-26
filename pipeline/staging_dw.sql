@@ -12,20 +12,24 @@
 --   2  Initial Staging     stg_initial_classicmodels,        layer2_initial_staging.py
 --                          stg_initial_customerservice,
 --                          stg_perfil
---   3  Data Quality        stg_error_log                     layer3_data_quality.py
+--   3  Data Quality        stg_error_log, stg_dq_resumen     layer3_data_quality.py
 --   4  Clean Staging       stg_clean, stg_rejected           layer4_clean_staging.py
---   5  Transformation      stg_transform                     layer5_transform_dimensions.py,
+--   5  Transformation      stg_transform, stg_dq_resumen     layer5_transform_dimensions.py,
 --                                                            layer5_transform_facts.py
 --   6  Load-Ready Publish  stg_loadready                     layer6_load_ready.py
---   7  Load                dim_* / fact_* in the EDW,        layer7_load.py
---                          database dw
+--   7  Load                dim_* / fact_* and dim_lote_carga layer7_load.py
+--                          in the EDW, database dw
 --                          (datawarehouse/edw/star_schema.sql)
 --
--- Staging tables are never truncated: each run appends rows under its
--- run_id, so the full history of every load is kept. This script is
--- idempotent for the same reason: running it again (run_all.py does, on
--- every build) creates what is missing and keeps every past run. To
--- start from an empty staging area: python run_all.py --reset
+-- etl_run and etl_run_capa control the runs and their checkpoints.
+--
+-- Staging tables are not truncated by the loads: each run appends rows
+-- under its run_id, so the history of every load is kept. Old runs are
+-- purged only by pipeline/purge_staging.py, which keeps the latest ones
+-- and whatever the warehouse was loaded from. This script is idempotent
+-- for the same reason: running it again (run_all.py does, on every
+-- build) creates what is missing and keeps every past run. To start from
+-- an empty staging area: python run_all.py --reset
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS staging_dw;
@@ -34,6 +38,10 @@ CREATE SCHEMA IF NOT EXISTS staging_dw;
 -- Run control. The staging process (layers 1-4) opens one run; the
 -- dimension and fact processes (layers 5-7) open their own and record
 -- in run_origen which staging run they read.
+--
+-- A failed run can be resumed (--resume): it keeps its run_id, goes back
+-- to EN_CURSO and adds one to reintentos. error holds why it last
+-- failed; depurado_en, when purge_staging.py removed its layer data.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS staging_dw.etl_run (
     run_id          SERIAL PRIMARY KEY,
@@ -42,8 +50,30 @@ CREATE TABLE IF NOT EXISTS staging_dw.etl_run (
     iniciado_en     TIMESTAMP    NOT NULL DEFAULT now(),
     finalizado_en   TIMESTAMP,
     estado          VARCHAR(20)  NOT NULL DEFAULT 'EN_CURSO',
+    reintentos      SMALLINT     NOT NULL DEFAULT 0,
+    error           TEXT,
+    depurado_en     TIMESTAMP,
     CHECK (proceso IN ('staging', 'dimensiones', 'hechos')),
     CHECK (estado  IN ('EN_CURSO', 'OK', 'ERROR'))
+);
+
+-- ------------------------------------------------------------
+-- Layer checkpoints: one row per layer a run went through. A resumed
+-- run skips the layers that finished OK and redoes the first one that
+-- did not, after deleting whatever it had half written. Layer 1 keeps
+-- its extracts in memory, so it is recorded and redone together with
+-- layer 2.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS staging_dw.etl_run_capa (
+    run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
+    capa            SMALLINT    NOT NULL,     -- 2..7
+    nombre          VARCHAR(40) NOT NULL,
+    estado          VARCHAR(20) NOT NULL,
+    filas           INTEGER,                  -- rows the layer wrote
+    iniciado_en     TIMESTAMP   NOT NULL DEFAULT now(),
+    finalizado_en   TIMESTAMP,
+    PRIMARY KEY (run_id, capa),
+    CHECK (estado IN ('EN_CURSO', 'OK', 'ERROR'))
 );
 
 -- ------------------------------------------------------------
@@ -115,13 +145,28 @@ CREATE TABLE IF NOT EXISTS staging_dw.stg_error_log (
     detalle         TEXT,
     registrado_en   TIMESTAMP    NOT NULL DEFAULT now(),
     CHECK (clase_dq IN ('TECNICA', 'NEGOCIO')),
-    CHECK (categoria IN ('CAMPO_FALTANTE', 'DATO_INVALIDO',
+    CONSTRAINT stg_error_log_categoria_check
+    CHECK (categoria IN ('CAMPO_FALTANTE', 'DATO_INVALIDO', 'DATO_DUPLICADO',
                          'INTEGRIDAD_REFERENCIAL', 'DATO_INEXACTO',
                          'DEFINICION_INCONSISTENTE')),
     CHECK (accion IN ('RECHAZADO', 'ADVERTENCIA'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_error_run ON staging_dw.stg_error_log(run_id);
+
+-- How many records each quality rule checked and how many failed, per
+-- run and layer (3 for Data Quality, 5 for the modelling decisions of
+-- Transformation). The process copies it to dq_result in the metadata
+-- repository when the run ends, so a resumed run still reports the
+-- rules of the layers it skipped.
+CREATE TABLE IF NOT EXISTS staging_dw.stg_dq_resumen (
+    run_id          INTEGER      NOT NULL REFERENCES staging_dw.etl_run(run_id),
+    capa            SMALLINT     NOT NULL,
+    regla           VARCHAR(120) NOT NULL,    -- matches dq_rule.rule_name
+    evaluados       INTEGER      NOT NULL,
+    fallidos        INTEGER      NOT NULL,
+    PRIMARY KEY (run_id, capa, regla)
+);
 
 -- ------------------------------------------------------------
 -- Layer 4 - Clean Staging
@@ -194,10 +239,27 @@ CREATE TABLE IF NOT EXISTS staging_dw.stg_loadready (
 CREATE INDEX IF NOT EXISTS idx_loadready_run ON staging_dw.stg_loadready(run_id, objetivo);
 
 -- ============================================================
+-- Upgrades of a staging area created by an earlier version of this
+-- script (CREATE TABLE IF NOT EXISTS leaves existing tables as they are)
+-- ============================================================
+
+ALTER TABLE staging_dw.etl_run ADD COLUMN IF NOT EXISTS reintentos  SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE staging_dw.etl_run ADD COLUMN IF NOT EXISTS error       TEXT;
+ALTER TABLE staging_dw.etl_run ADD COLUMN IF NOT EXISTS depurado_en TIMESTAMP;
+
+-- DATO_DUPLICADO, for the uniqueness rules.
+ALTER TABLE staging_dw.stg_error_log DROP CONSTRAINT IF EXISTS stg_error_log_categoria_check;
+ALTER TABLE staging_dw.stg_error_log ADD CONSTRAINT stg_error_log_categoria_check
+    CHECK (categoria IN ('CAMPO_FALTANTE', 'DATO_INVALIDO', 'DATO_DUPLICADO',
+                         'INTEGRIDAD_REFERENCIAL', 'DATO_INEXACTO',
+                         'DEFINICION_INCONSISTENTE'));
+
+-- ============================================================
 -- Monitoring views
 -- ============================================================
 
--- Row counts of every run in each layer.
+-- Row counts of every run in each layer. A purged run (depurado_en)
+-- shows 0 in the layers whose data purge_staging.py removed.
 CREATE OR REPLACE VIEW staging_dw.vw_trazabilidad_capas AS
 SELECT r.run_id,
        r.proceso,
@@ -211,7 +273,9 @@ SELECT r.run_id,
        (SELECT COUNT(*) FROM staging_dw.stg_clean     x WHERE x.run_id = r.run_id) AS clean,
        (SELECT COUNT(*) FROM staging_dw.stg_rejected  x WHERE x.run_id = r.run_id) AS rejected,
        (SELECT COUNT(*) FROM staging_dw.stg_transform x WHERE x.run_id = r.run_id) AS transform,
-       (SELECT COUNT(*) FROM staging_dw.stg_loadready x WHERE x.run_id = r.run_id) AS load_ready
+       (SELECT COUNT(*) FROM staging_dw.stg_loadready x WHERE x.run_id = r.run_id) AS load_ready,
+       r.reintentos,
+       r.depurado_en
 FROM staging_dw.etl_run r
 ORDER BY r.run_id;
 

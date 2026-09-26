@@ -48,6 +48,21 @@ FROM (VALUES
      'ADVERTENCIA',
      'El registro pasa; la anomalia queda en el reporte de transacciones malas.'),
 
+    ('registro_duplicado',
+     'UNICIDAD', 'EXACTITUD', 'TECNICA', 'DATA_QUALITY', NULL, NULL,
+     'Ningun registro es copia exacta de otro con la misma llave de su tabla '
+     '(la llave primaria; en cs_customer_calls, cliente, producto, agente y fecha)',
+     'BLOQUEANTE',
+     'La primera copia sigue y las demas van a la pila de rechazados: '
+     'contarlas inflaria los hechos.'),
+
+    ('llave_duplicada',
+     'UNICIDAD', 'CONSISTENCIA', 'TECNICA', 'DATA_QUALITY', NULL, NULL,
+     'Ninguna llave aparece en dos registros con contenido distinto',
+     'BLOQUEANTE',
+     'Todas las versiones van a la pila de rechazados, porque nada dice cual '
+     'es la correcta, y sus hijos las siguen (padre_rechazado).'),
+
     -- ==========================================================
     -- DATA_QUALITY: business checks
     -- ==========================================================
@@ -134,6 +149,16 @@ FROM (VALUES
      'El registro sigue a su padre a la pila de rechazados, en cascada '
      '(cliente -> ordenes -> lineas): si pasara, apuntaria a un miembro '
      'que no llega al almacen y detendria la carga de hechos.'),
+
+    ('orden_con_lineas_rechazadas',
+     'COMPLETITUD', 'EXHAUSTIVIDAD', 'NEGOCIO', 'DATA_QUALITY',
+     'orders', 'orderNumber',
+     'Toda orden que pasa conserva todas sus lineas (se evalua despues de '
+     'padre_rechazado)',
+     'ADVERTENCIA',
+     'La orden se carga con las lineas que pasaron; la advertencia avisa que '
+     'su total y su numero de lineas en el almacen quedan por debajo de la '
+     'fuente.'),
 
     -- ==========================================================
     -- TRANSFORMATION: findings from source profiling

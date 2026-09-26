@@ -33,6 +33,7 @@ TARGETS = {
                     "datawarehouse/data_marts/data_marts.sql"],
         # Load order respects foreign keys.
         "tables": [
+            "dim_lote_carga",
             "dim_tiempo", "dim_cliente", "dim_producto", "dim_empleado",
             "dim_oficina", "dim_estado_orden",
             "fact_ventas", "fact_llamadas_servicio",

@@ -6,39 +6,51 @@ Process 'dimensiones': layers 5 to 7 for the six dimensions.
     7 Load                layer7_load.py
 
 Reads the Clean Staging of the latest successful staging run; the
-sources are not read again.
+sources are not read again. With --resume, a failed run continues from
+the first layer that did not finish.
 
 Usage:
-    python pipeline/run_dimensions.py
+    python pipeline/run_dimensions.py [--resume]
 """
 import layer5_transform_dimensions as transform
 import layer6_load_ready
 import layer7_load
-from common import close_run, last_successful_staging_run, log_execution, open_run
+from common import (Layer, Process, count_rows, last_successful_staging_run,
+                    parse_args, pipeline_lock, run_process)
 
-PROCESS = "etl_dw_dimensions"   # name in the metadata repository
-TARGET = "dw (PostgreSQL)"
+
+def summary(run_id):
+    return count_rows("stg_transform", run_id), count_rows("stg_loadready", run_id), 0
+
+
+PROCESS = Process(
+    name="dimensiones",
+    script="run_dimensions.py",
+    title="Integration, dimensions (layers 5-7)",
+    metadata_name="etl_dw_dimensions",
+    description="Capas 5 a 7 para el modelo de dimensiones: conforma por area "
+                "tematica desde Clean Staging y carga las seis dimensiones.",
+    sources="staging_dw.stg_clean de la ultima corrida de staging exitosa "
+            "(etl_execution.run_origen); las fuentes no se releen",
+    target="dw (PostgreSQL)",
+    summary=summary,
+)
+
+
+def layers(staging_run):
+    return [
+        Layer(5, "Transformation (dimensions)", ("stg_transform",),
+              lambda r: transform.run(r, staging_run)),
+        Layer(6, "Load-Ready Publish", ("stg_loadready",),
+              lambda r: layer6_load_ready.run(r, "DIMENSIONES", transform.TARGETS)),
+        Layer(7, "Load", (),
+              lambda r: layer7_load.run(r, transform.TARGETS, PROCESS.name, staging_run)),
+    ]
 
 
 if __name__ == "__main__":
-    staging_run = last_successful_staging_run()
-    run_id = open_run("dimensiones", source_run=staging_run)
-    print(f"Integration, dimensions (layers 5-7) - run_id={run_id}, "
-          f"reading Clean Staging of run {staging_run}")
-    try:
-        quality = transform.run(run_id, staging_run)
-        layer6_load_ready.run(run_id, "DIMENSIONES", transform.TARGETS)
-        written = layer7_load.run(run_id, transform.TARGETS)
-    except Exception as e:
-        close_run(run_id, "ERROR")
-        log_execution(PROCESS, "", "", TARGET, run_id, 0, 0, 0, "ERROR", str(e)[:500])
-        raise
-    close_run(run_id, "OK")
-    log_execution(
-        PROCESS,
-        "Capas 5 a 7 para el modelo de dimensiones: conforma por area "
-        "tematica desde Clean Staging y carga las seis dimensiones.",
-        f"staging_dw.stg_clean (run {staging_run}); las fuentes no se releen",
-        TARGET, run_id, written, written, 0, "OK", quality_results=quality,
-    )
-    print(f"\nDimensions loaded: {written} rows.")
+    args = parse_args("Pipeline layers 5-7 for the dimensions.")
+    with pipeline_lock():
+        staging_run = last_successful_staging_run()
+        run_id = run_process(PROCESS, layers(staging_run), staging_run, args.resume)
+    print(f"\nDimensions loaded: {summary(run_id)[1]} rows.")

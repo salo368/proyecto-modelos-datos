@@ -13,7 +13,9 @@ Docker and Python 3.9+.
 Options:
     python run_all.py                  start the stack and run the pipeline
     python run_all.py --etl-only       skip Docker, run the pipeline against .env
-    python run_all.py --from-step N    resume at step N, skipping the ones before
+    python run_all.py --from-step N    resume at step N, skipping the ones before;
+                                       if N is a pipeline process, its failed
+                                       run continues from the layer it stopped at
     python run_all.py --reset          wipe the Docker volumes and start over
     python run_all.py --down           stop the stack (data is kept)
 """
@@ -92,10 +94,18 @@ PIPELINE = [
      [PY, "datawarehouse/tests/validate_against_sources.py"]),
     ("Test: data quality rejection path (synthetic data)",
      [PY, "pipeline/tests/test_dq_reject_path.py"]),
+    ("Test: load-ready rows are checked against the warehouse",
+     [PY, "pipeline/tests/test_load_ready_shape.py"]),
     ("Test: load is all-or-nothing (forced failure)",
      [PY, "pipeline/tests/test_load_atomic.py"]),
     ("Test: a load resumes without damaging the warehouse",
      [PY, "pipeline/tests/test_resume.py"]),
+    ("Test: a failed run resumes from the layer where it stopped",
+     [PY, "pipeline/tests/test_resume_layers.py"]),
+
+    # --- Maintenance ---
+    ("Pipeline: staging retention (keep the last 3 runs per process)",
+     [PY, "pipeline/purge_staging.py", "--keep", "3"]),
 
     # --- Deliverables ---
     ("Reports: Metabase dashboard",
@@ -236,6 +246,12 @@ def install_dependencies():
 # Pipeline
 # ============================================================
 
+# Pipeline processes: they keep a checkpoint per layer, so resuming the
+# build at one of them continues its failed run instead of starting over.
+RESUMABLE = {"pipeline/run_staging.py", "pipeline/run_dimensions.py",
+             "pipeline/run_facts.py"}
+
+
 def run_pipeline(first=1):
     """Run the steps from `first` on. The earlier ones are assumed done:
     what they left in the databases is kept, not rebuilt."""
@@ -245,11 +261,16 @@ def run_pipeline(first=1):
     for i, (title, cmd) in enumerate(PIPELINE, 1):
         if i < first:
             continue
+        resumable = cmd[-1] in RESUMABLE
+        if i == first > 1 and resumable:
+            cmd = cmd + ["--resume"]
         print(f"\n[{i}/{total}] {title}\n" + "-" * 66)
         if subprocess.run(cmd, cwd=ROOT).returncode != 0:
             print(f"\nStep {i} failed: {title}")
             print(f"Fix it and resume from this step with: "
                   f"python run_all.py --etl-only --from-step {i}")
+            if resumable:
+                print("The failed run will continue from the layer where it stopped.")
             sys.exit(1)
 
 

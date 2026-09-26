@@ -100,11 +100,18 @@ CREATE TABLE IF NOT EXISTS etl_process (
     description     TEXT
 );
 
--- Execution log: one row per run of each process.
+-- Execution log: one row per attempt of each process. The row is written
+-- EN_CURSO when the attempt starts and closed when it ends, so
+-- finished_at - started_at is its real duration and a process that dies
+-- leaves a trace (the next run closes it as ERROR). A resumed run adds
+-- a new attempt under the same run_id. run_id and run_origen are
+-- staging_dw.etl_run ids in the staging database: the run, and the
+-- staging run it read (dimensions and facts only).
 CREATE TABLE IF NOT EXISTS etl_execution (
     etl_execution_id SERIAL PRIMARY KEY,
     etl_process_id   INTEGER NOT NULL REFERENCES etl_process(etl_process_id),
     run_id           INTEGER NOT NULL,
+    run_origen       INTEGER,
     started_at       TIMESTAMP NOT NULL,
     finished_at      TIMESTAMP,
     status           VARCHAR(20) NOT NULL,
@@ -114,6 +121,9 @@ CREATE TABLE IF NOT EXISTS etl_execution (
     error_message    TEXT,
     CHECK (status IN ('EN_CURSO', 'OK', 'ERROR'))
 );
+
+-- Repository created by an earlier version of this script.
+ALTER TABLE etl_execution ADD COLUMN IF NOT EXISTS run_origen INTEGER;
 
 -- ------------------------------------------------------------
 -- 4. Data quality

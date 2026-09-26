@@ -10,7 +10,8 @@
 -- 1. Service calls per unit sold, by product.
 --    Sales come from classicmodels and calls from customerservice; the
 --    conformed dim_cliente / dim_producto make the comparison possible.
---    A high value means after-sales friction relative to volume.
+--    A high value means after-sales friction relative to volume. Units
+--    come from effective orders only (the data mart filters them).
 -- ------------------------------------------------------------
 SELECT nombre_producto,
        linea_producto,
@@ -73,7 +74,7 @@ ORDER BY monto_vendido DESC;
 
 
 -- ------------------------------------------------------------
--- 5. Customers: amount purchased vs. calls made
+-- 5. Customers: amount purchased (effective orders) vs. calls made
 -- ------------------------------------------------------------
 SELECT numero_cliente,
        nombre_cliente,

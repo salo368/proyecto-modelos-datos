@@ -97,8 +97,9 @@ ORDER BY o.object_name, se_afecta_campo, uc.nombre;
 
 -- ------------------------------------------------------------
 -- 4. Lineage coverage: warehouse fields without a declared source.
---    Surrogate keys, dim_tiempo and sistema_origen are expected here
---    because the warehouse generates them.
+--    Surrogate keys, dim_tiempo, sistema_origen and the load audit
+--    (dim_lote_carga, lote_carga_key) are expected here because the
+--    warehouse or the pipeline generates them.
 -- ------------------------------------------------------------
 WITH campos AS (
     SELECT o.object_name, m.measure_name AS campo,
@@ -111,6 +112,8 @@ WITH campos AS (
 SELECT c.object_name,
        c.campo,
        CASE
+           WHEN c.object_name = 'dim_lote_carga' OR c.campo = 'lote_carga_key'
+                                             THEN 'Correcto: auditoria de carga escrita por el pipeline'
            WHEN c.campo LIKE '%\_key'      THEN 'Correcto: llave subrogada generada por el almacen'
            WHEN c.object_name = 'dim_tiempo' THEN 'Correcto: dimension generada por codigo'
            WHEN c.campo = 'sistema_origen'   THEN 'Correcto: literal asignado por el ETL'

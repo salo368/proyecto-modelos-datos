@@ -13,13 +13,13 @@ the shape of its dimension:
     Empleado      dim_empleado       union of both sources, composite key
 
     Input   stg_clean (layer 4)
-    Output  stg_transform
+    Output  stg_transform; stg_dq_resumen (profiling findings handled here)
 """
 from datetime import date, timedelta
 
 import pandas as pd
 
-from common import write_payload
+from common import write_payload, write_quality
 from layer4_clean_staging import read_clean
 
 MONTH_NAMES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -36,7 +36,8 @@ NON_EFFECTIVE_STATUSES = {"Cancelled", "Disputed", "On Hold"}
 # Source dates that layer5_transform_facts.py turns into a tiempo_key.
 FACT_DATES = {"orders": "orderDate", "cs_customer_calls": "date"}
 
-_quality_results = []   # (rule, evaluated, failed) -> dq_result
+_quality_results = []   # (rule, evaluated, failed) -> stg_dq_resumen
+_rows_written = []
 
 
 def record_quality(rule, evaluated, failed, message):
@@ -47,6 +48,7 @@ def record_quality(rule, evaluated, failed, message):
 def publish_transform(run_id, area, target, df, operations):
     n = write_payload("stg_transform", run_id, df, area_conformada=area,
                       objetivo=target, operaciones=operations)
+    _rows_written.append(n)
     print(f"    {area:<13}{target:<18}{n:>6}  {operations}")
 
 
@@ -203,13 +205,16 @@ def area_employee(run_id, staging_run):
 
 
 def run(run_id, staging_run):
-    """Transform every dimension; returns the (rule, evaluated, failed)
-    results to record in the metadata repository."""
+    """Transform every dimension; returns the rows written. The quality
+    findings go to stg_dq_resumen, and from there to dq_result."""
     print("\n[Layer 5] Transformation (dimensions)")
+    _quality_results.clear()
+    _rows_written.clear()
     area_time(run_id, staging_run)
     area_organization(run_id, staging_run)
     area_sales(run_id, staging_run)
     area_customer(run_id, staging_run)
     area_product(run_id, staging_run)
     area_employee(run_id, staging_run)
-    return _quality_results
+    write_quality(run_id, 5, _quality_results)
+    return sum(_rows_written)

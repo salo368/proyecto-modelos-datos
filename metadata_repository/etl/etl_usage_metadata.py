@@ -64,17 +64,19 @@ QUERIES = [
      "SEMANAL", 2, ["fact_llamadas_servicio", "dim_empleado"]),
 
     ("Validacion contra fuentes", "Scripts de validacion y backup",
-     "Nueve comparaciones de totales entre el almacen y las fuentes.",
+     "Conciliacion del almacen con las fuentes: nueve verificaciones de que "
+     "cada registro de las fuentes esta cargado o fue rechazado.",
      "BAJO_DEMANDA", 8,
      ["fact_ventas", "fact_llamadas_servicio", "dim_cliente", "dim_producto",
-      "dim_oficina", "dim_empleado"]),
+      "dim_oficina", "dim_empleado", "dim_lote_carga"]),
 
     ("Carga de dimensiones y hechos", "ETL Python (staging, dimensiones y hechos)",
-     "Escritura de las ocho tablas del modelo dimensional desde staging.",
+     "Escritura de las ocho tablas del modelo dimensional y del registro de "
+     "cada carga en la dimension de auditoria, desde staging.",
      "BAJO_DEMANDA", 0,
      ["dim_tiempo", "dim_cliente", "dim_producto", "dim_empleado",
       "dim_oficina", "dim_estado_orden", "fact_ventas",
-      "fact_llamadas_servicio"]),
+      "fact_llamadas_servicio", "dim_lote_carga"]),
 ]
 
 
