@@ -1,0 +1,114 @@
+# ============================================================
+# Stack local completo del proyecto - Entregas 1 y 2
+#
+# Levanta las dos fuentes, el repositorio de metadatos, el almacen
+# de datos y la herramienta de reportes, todo en la maquina local.
+# No hace falta ninguna cuenta en la nube.
+#
+#   docker compose up -d
+#
+# Las fuentes se restauran solas la primera vez, desde los dumps que
+# estan en sources/. Los scripts de docker-entrypoint-initdb.d solo
+# corren cuando el volumen esta vacio, asi que para empezar de cero:
+#
+#   docker compose down -v
+#
+# Puertos elegidos a proposito fuera de los valores por defecto, para
+# no chocar con un MySQL o un PostgreSQL ya instalado en la maquina.
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # Fuente 1: classicmodels (ventas)
+  # El dump trae su propio CREATE DATABASE y USE, asi que se
+  # restaura solo al arrancar.
+  # ----------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: mpd-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: javeriana
+      MYSQL_DATABASE: classicmodels
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sources/mysqlsampledatabase.sql:/docker-entrypoint-initdb.d/01-classicmodels.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pjaveriana"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # ----------------------------------------------------------
+  # Fuente 2: customerservice (centro de atencion al cliente)
+  # El dump NO crea la base, solo tablas en el schema public,
+  # por eso se nombra la base con POSTGRES_DB.
+  # ----------------------------------------------------------
+  postgres-cs:
+    image: postgres:16-alpine
+    container_name: mpd-postgres-cs
+    environment:
+      POSTGRES_PASSWORD: javeriana
+      POSTGRES_DB: customerservice
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-cs-data:/var/lib/postgresql/data
+      - ./sources/customerservice.sql:/docker-entrypoint-initdb.d/01-customerservice.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d customerservice"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # Repositorio de metadatos (base 'metadata') y almacen de datos
+  # (base 'dw'), en la misma instancia pero en bases separadas.
+  # Es la misma topologia que se uso en Railway.
+  # ----------------------------------------------------------
+  postgres-dw:
+    image: postgres:16-alpine
+    container_name: mpd-postgres-dw
+    environment:
+      POSTGRES_PASSWORD: javeriana
+      POSTGRES_DB: metadata
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-dw-data:/var/lib/postgresql/data
+      - ./docker/init-dw.sql:/docker-entrypoint-initdb.d/01-create-dw.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d metadata"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ----------------------------------------------------------
+  # Metabase: los reportes de la Entrega 2.
+  # Solo se le registra el almacen como origen, nunca las fuentes.
+  # ----------------------------------------------------------
+  metabase:
+    image: metabase/metabase:latest
+    container_name: mpd-metabase
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_SESSION_SECRET_KEY: javeriana-entrega2-clave-de-sesion-local
+      MB_ANON_TRACKING_ENABLED: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - metabase-data:/metabase-data
+    depends_on:
+      postgres-dw:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  postgres-cs-data:
+  postgres-dw-data:
+  metabase-data:

@@ -1,0 +1,133 @@
+erDiagram
+    business_attribute {
+        INTEGER attribute_id PK
+        INTEGER entity_id
+        VARCHAR attribute_name
+        TEXT attribute_definition
+    }
+    business_entity {
+        INTEGER entity_id PK
+        VARCHAR entity_name
+        TEXT entity_description
+        VARCHAR data_domain
+    }
+    column_business_mapping {
+        INTEGER mapping_id PK
+        INTEGER column_id
+        INTEGER attribute_id
+    }
+    data_source {
+        INTEGER source_id PK
+        VARCHAR source_name
+        VARCHAR db_engine
+        TEXT description
+    }
+    db_column {
+        INTEGER column_id PK
+        INTEGER table_id
+        VARCHAR column_name
+        INTEGER ordinal_position
+        VARCHAR data_type
+        VARCHAR native_data_type
+        BOOLEAN is_nullable
+        BOOLEAN is_primary_key
+        BOOLEAN is_foreign_key
+        INTEGER fk_ref_column_id
+        TIMESTAMP loaded_at
+    }
+    db_table {
+        INTEGER table_id PK
+        INTEGER source_id
+        VARCHAR schema_name
+        VARCHAR table_name
+        TEXT table_description
+        INTEGER row_count_approx
+        TIMESTAMP loaded_at
+    }
+    dq_result {
+        INTEGER dq_result_id PK
+        INTEGER dq_rule_id
+        INTEGER etl_execution_id
+        TIMESTAMP evaluated_at
+        INTEGER rows_evaluated
+        INTEGER rows_failed
+        BOOLEAN passed
+    }
+    dq_rule {
+        INTEGER dq_rule_id PK
+        VARCHAR rule_name
+        VARCHAR rule_type
+        INTEGER source_column_id
+        TEXT expression
+        VARCHAR severity
+        TEXT resolution
+    }
+    dw_attribute {
+        INTEGER dw_attribute_id PK
+        INTEGER dw_object_id
+        VARCHAR attribute_name
+        VARCHAR data_type
+        VARCHAR attribute_role
+        TEXT description
+    }
+    dw_lineage {
+        INTEGER dw_lineage_id PK
+        INTEGER source_column_id
+        INTEGER target_measure_id
+        INTEGER target_attribute_id
+        TEXT transformation_rule
+    }
+    dw_measure {
+        INTEGER dw_measure_id PK
+        INTEGER dw_object_id
+        VARCHAR measure_name
+        VARCHAR data_type
+        VARCHAR additivity
+        TEXT formula
+        TEXT description
+    }
+    dw_object {
+        INTEGER dw_object_id PK
+        VARCHAR object_name
+        VARCHAR object_type
+        TEXT grain
+        TEXT description
+        BOOLEAN is_conformed
+        INTEGER row_count
+        TIMESTAMP loaded_at
+    }
+    etl_execution {
+        INTEGER etl_execution_id PK
+        INTEGER etl_process_id
+        INTEGER run_id
+        TIMESTAMP started_at
+        TIMESTAMP finished_at
+        VARCHAR status
+        INTEGER rows_read
+        INTEGER rows_written
+        INTEGER rows_rejected
+        TEXT error_message
+    }
+    etl_process {
+        INTEGER etl_process_id PK
+        VARCHAR process_name
+        VARCHAR tool
+        VARCHAR source_systems
+        VARCHAR target_system
+        TEXT description
+    }
+    business_entity ||--o{ business_attribute : "entity_id"
+    business_attribute ||--o{ column_business_mapping : "attribute_id"
+    db_column ||--o{ column_business_mapping : "column_id"
+    db_column ||--o{ db_column : "fk_ref_column_id"
+    db_table ||--o{ db_column : "table_id"
+    data_source ||--o{ db_table : "source_id"
+    dq_rule ||--o{ dq_result : "dq_rule_id"
+    etl_execution ||--o{ dq_result : "etl_execution_id"
+    db_column ||--o{ dq_rule : "source_column_id"
+    dw_object ||--o{ dw_attribute : "dw_object_id"
+    db_column ||--o{ dw_lineage : "source_column_id"
+    dw_attribute ||--o{ dw_lineage : "target_attribute_id"
+    dw_measure ||--o{ dw_lineage : "target_measure_id"
+    dw_object ||--o{ dw_measure : "dw_object_id"
+    etl_process ||--o{ etl_execution : "etl_process_id"

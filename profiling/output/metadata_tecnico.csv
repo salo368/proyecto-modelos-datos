@@ -1,0 +1,86 @@
+0;tabla;columna;tipo_dato;permite_nulo;es_pk;es_fk;referencia
+classicmodels;customers;customerNumber;int(11);NO;True;False;
+classicmodels;customers;customerName;varchar(50);NO;False;False;
+classicmodels;customers;contactLastName;varchar(50);NO;False;False;
+classicmodels;customers;contactFirstName;varchar(50);NO;False;False;
+classicmodels;customers;phone;varchar(50);NO;False;False;
+classicmodels;customers;addressLine1;varchar(50);NO;False;False;
+classicmodels;customers;addressLine2;varchar(50);YES;False;False;
+classicmodels;customers;city;varchar(50);NO;False;False;
+classicmodels;customers;state;varchar(50);YES;False;False;
+classicmodels;customers;postalCode;varchar(15);YES;False;False;
+classicmodels;customers;country;varchar(50);NO;False;False;
+classicmodels;customers;salesRepEmployeeNumber;int(11);YES;False;True;employees.employeeNumber
+classicmodels;customers;creditLimit;decimal(10,2);YES;False;False;
+classicmodels;employees;employeeNumber;int(11);NO;True;False;
+classicmodels;employees;lastName;varchar(50);NO;False;False;
+classicmodels;employees;firstName;varchar(50);NO;False;False;
+classicmodels;employees;extension;varchar(10);NO;False;False;
+classicmodels;employees;email;varchar(100);NO;False;False;
+classicmodels;employees;officeCode;varchar(10);NO;False;True;offices.officeCode
+classicmodels;employees;reportsTo;int(11);YES;False;True;employees.employeeNumber
+classicmodels;employees;jobTitle;varchar(50);NO;False;False;
+classicmodels;offices;officeCode;varchar(10);NO;True;False;
+classicmodels;offices;city;varchar(50);NO;False;False;
+classicmodels;offices;phone;varchar(50);NO;False;False;
+classicmodels;offices;addressLine1;varchar(50);NO;False;False;
+classicmodels;offices;addressLine2;varchar(50);YES;False;False;
+classicmodels;offices;state;varchar(50);YES;False;False;
+classicmodels;offices;country;varchar(50);NO;False;False;
+classicmodels;offices;postalCode;varchar(15);NO;False;False;
+classicmodels;offices;territory;varchar(10);NO;False;False;
+classicmodels;orderdetails;orderNumber;int(11);NO;True;True;orders.orderNumber
+classicmodels;orderdetails;productCode;varchar(15);NO;True;True;products.productCode
+classicmodels;orderdetails;quantityOrdered;int(11);NO;False;False;
+classicmodels;orderdetails;priceEach;decimal(10,2);NO;False;False;
+classicmodels;orderdetails;orderLineNumber;smallint(6);NO;False;False;
+classicmodels;orders;orderNumber;int(11);NO;True;False;
+classicmodels;orders;orderDate;date;NO;False;False;
+classicmodels;orders;requiredDate;date;NO;False;False;
+classicmodels;orders;shippedDate;date;YES;False;False;
+classicmodels;orders;status;varchar(15);NO;False;False;
+classicmodels;orders;comments;text;YES;False;False;
+classicmodels;orders;customerNumber;int(11);NO;False;True;customers.customerNumber
+classicmodels;payments;customerNumber;int(11);NO;True;True;customers.customerNumber
+classicmodels;payments;checkNumber;varchar(50);NO;True;False;
+classicmodels;payments;paymentDate;date;NO;False;False;
+classicmodels;payments;amount;decimal(10,2);NO;False;False;
+classicmodels;productlines;productLine;varchar(50);NO;True;False;
+classicmodels;productlines;textDescription;varchar(4000);YES;False;False;
+classicmodels;productlines;htmlDescription;mediumtext;YES;False;False;
+classicmodels;productlines;image;mediumblob;YES;False;False;
+classicmodels;products;productCode;varchar(15);NO;True;False;
+classicmodels;products;productName;varchar(70);NO;False;False;
+classicmodels;products;productLine;varchar(50);NO;False;True;productlines.productLine
+classicmodels;products;productScale;varchar(10);NO;False;False;
+classicmodels;products;productVendor;varchar(50);NO;False;False;
+classicmodels;products;productDescription;text;NO;False;False;
+classicmodels;products;quantityInStock;smallint(6);NO;False;False;
+classicmodels;products;buyPrice;decimal(10,2);NO;False;False;
+classicmodels;products;MSRP;decimal(10,2);NO;False;False;
+customerservice;cs_customer_calls;employeenumber;integer;NO;False;True;cs_employees.employeenumber
+customerservice;cs_customer_calls;customernumber;integer;NO;False;True;cs_customers.customernumber
+customerservice;cs_customer_calls;productcode;character varying(15);NO;False;True;cs_products.productcode
+customerservice;cs_customer_calls;text;character varying(200);YES;False;False;
+customerservice;cs_customer_calls;date;timestamp(6) without time zone;NO;False;False;
+customerservice;cs_customer_products;customernumber;integer;NO;True;True;cs_customers.customernumber
+customerservice;cs_customer_products;productcode;character varying(15);NO;True;True;cs_products.productcode
+customerservice;cs_customers;customernumber;integer;NO;True;False;
+customerservice;cs_customers;contactlastname;character varying(50);YES;False;False;
+customerservice;cs_customers;contactfirstname;character varying(50);YES;False;False;
+customerservice;cs_customers;phone;character varying(50);YES;False;False;
+customerservice;cs_customers;addressline1;character varying(50);YES;False;False;
+customerservice;cs_customers;addressline2;character varying(50);YES;False;False;
+customerservice;cs_customers;city;character varying(50);YES;False;False;
+customerservice;cs_customers;state;character varying(50);YES;False;False;
+customerservice;cs_customers;postalcode;character varying(15);YES;False;False;
+customerservice;cs_customers;country;character varying(50);YES;False;False;
+customerservice;cs_employees;employeenumber;integer;NO;True;False;
+customerservice;cs_employees;lastname;character varying(50);YES;False;False;
+customerservice;cs_employees;firstname;character varying(50);YES;False;False;
+customerservice;cs_employees;email;character varying(100);YES;False;False;
+customerservice;cs_products;productcode;character varying(15);NO;True;False;
+customerservice;cs_products;productname;character varying(70);YES;False;False;
+customerservice;cs_products;productscale;character varying(10);YES;False;False;
+customerservice;cs_products;productvendor;character varying(50);YES;False;False;
+customerservice;cs_products;productdescription;text;YES;False;False;

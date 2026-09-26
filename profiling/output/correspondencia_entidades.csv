@@ -1,0 +1,4 @@
+entidad,llaves_solo_classicmodels,llaves_solo_customerservice,llaves_en_ambas,pct_solapamiento_jaccard,duplicados_en_classicmodels,duplicados_en_customerservice,pct_coincidencia_phone,pct_coincidencia_city,pct_coincidencia_state,pct_coincidencia_country,pct_coincidencia_postalCode,pct_coincidencia_lastName,pct_coincidencia_firstName,pct_coincidencia_email,pct_coincidencia_productName,pct_coincidencia_productScale,pct_coincidencia_productVendor
+customers,0,0,122,100.0,0,0,100.0,100.0,100.0,100.0,100.0,,,,,,
+employees,23,30,0,0.0,0,0,,,,,,0.0,0.0,0.0,,,
+products,0,0,110,100.0,0,0,,,,,,,,,100.0,100.0,100.0

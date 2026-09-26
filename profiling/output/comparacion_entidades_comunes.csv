@@ -1,0 +1,4 @@
+entidad,tabla_mysql,filas_mysql,tabla_postgres,filas_postgres
+customers,customers,122,cs_customers,122
+employees,employees,23,cs_employees,30
+products,products,110,cs_products,110
