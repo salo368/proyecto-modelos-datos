@@ -189,12 +189,27 @@ def per_target(table_name, run_id):
                         WHERE run_id = :r GROUP BY 1 ORDER BY 1""", r=run_id)
 
 
+# Dimensions with special members (negative keys: -1 Desconocido, -2 Sin
+# asignar), created by datawarehouse/edw/special_members.sql rather than
+# loaded by the pipeline. A fact key pointing to -2 stands for a NULL.
+SPECIAL_MEMBERS = {"dim_empleado": "empleado_key", "dim_oficina": "oficina_key"}
+
+
 def loaded_count(target):
-    return scalar(DW, f"SELECT COUNT(*) FROM {target}")
+    """Rows the pipeline loaded into a target, special members aside."""
+    where = f" WHERE {SPECIAL_MEMBERS[target]} > 0" if target in SPECIAL_MEMBERS else ""
+    return scalar(DW, f"SELECT COUNT(*) FROM {target}{where}")
+
+
+def null_as_member(obj, column):
+    return obj.startswith("fact_") and column in SPECIAL_MEMBERS.values()
 
 
 def nulls_in_target(obj, column):
-    return scalar(DW, f"SELECT COUNT(*) FILTER (WHERE {column} IS NULL) FROM {obj}")
+    """NULLs in a target column; for a fact key with special members, the
+    rows pointing to -2 Sin asignar, which stands in for the NULL."""
+    cond = f"{column} = -2" if null_as_member(obj, column) else f"{column} IS NULL"
+    return scalar(DW, f"SELECT COUNT(*) FILTER (WHERE {cond}) FROM {obj}")
 
 
 # ============================================================
@@ -226,7 +241,7 @@ def build():
     noneff_n, noneff_amt = share(
         "NOT e.es_efectiva", "JOIN dim_estado_orden e ON f.estado_key = e.estado_key")
     unshipped_n, unshipped_amt = share("f.dias_hasta_envio IS NULL")
-    norep_n, norep_amt = share("f.empleado_key IS NULL")
+    norep_n, norep_amt = share("f.empleado_key < 0")
     both_n, _ = share(
         "NOT e.es_efectiva AND f.dias_hasta_envio IS NULL",
         "JOIN dim_estado_orden e ON f.estado_key = e.estado_key")
@@ -290,6 +305,8 @@ def build():
     with_nulls = scalar(STAGING, "SELECT COUNT(*) FROM staging_dw.stg_perfil WHERE run_id = :r AND nulos > 0", r=rs)
     findings = scalar(STAGING, "SELECT COUNT(*) FROM staging_dw.stg_error_log WHERE run_id = :r", r=rs)
     loaded = {t: loaded_count(t) for t, _ in tr_d + tr_h}
+    specials = sum(scalar(DW, f"SELECT COUNT(*) FROM {t} WHERE {k} < 0")
+                   for t, k in SPECIAL_MEMBERS.items())
 
     w(table(
         ["Capa", "Entra", "Sale", "Qué pasó"],
@@ -305,8 +322,9 @@ def build():
          ["6 · Load-Ready Publish", n(sum(c for _, c in tr_d + tr_h)),
           n(sum(c for _, c in lr_d + lr_h)), "forma definitiva, sin transformaciones pendientes"],
          ["7 · Load", n(sum(c for _, c in lr_d + lr_h)), n(sum(loaded.values())),
-          "dimensiones por llave de negocio y hechos reemplazados, "
-          "cada rama en una sola transacción"]],
+          "dimensiones por llave de negocio y hechos reemplazados, cada rama "
+          "en una sola transacción. Aparte, el almacén tiene "
+          f"{n(specials)} miembros especiales (Desconocido y Sin asignar)"]],
         ["l", "r", "r", "l"]))
     w("")
     w("Entre las capas 4 y 5 el número de filas cambia porque la transformación "
@@ -364,7 +382,9 @@ def build():
             dest_nulls = [nulls_in_target(o, c) for o, c, _ in targets]
             nulos_dest = ", ".join(n(x) for x in dest_nulls)
             if sum(dest_nulls) > 0:
-                trato = "Se conserva como NULL"
+                trato = ("Se reemplaza por el miembro especial «Sin asignar»"
+                         if all(null_as_member(o, c) for o, c, _ in targets)
+                         else "Se conserva como NULL")
             elif all(o.startswith("dim_") for o, _, _ in targets):
                 # Same grain as the source: the transformation removed the NULL.
                 trato = "Resuelto en la transformación: el destino no tiene nulos"
@@ -393,7 +413,7 @@ def build():
           n(noneff_n), pct(noneff_n, lines), money(noneff_amt), pct(noneff_amt, amount)],
          ["Órdenes aún no despachadas (sin días hasta el envío)",
           n(unshipped_n), pct(unshipped_n, lines), money(unshipped_amt), pct(unshipped_amt, amount)],
-         ["Ventas sin vendedor ni oficina asignados",
+         ["Ventas sin vendedor resuelto («Sin asignar» o «Desconocido»)",
           n(norep_n), pct(norep_n, lines), money(norep_amt), pct(norep_amt, amount)]],
         ["l", "r", "r", "r", "r"]))
     w("")
@@ -414,8 +434,9 @@ def build():
           "los clientes sin vendedor asignado no tienen compras.")
     else:
         w(f"- Los análisis **por vendedor u oficina** cubren el "
-          f"**{pct(amount - norep_amt, amount)}** del monto; el resto son ventas a "
-          "clientes sin vendedor asignado.")
+          f"**{pct(amount - norep_amt, amount)}** del monto; el resto aparece bajo "
+          "los miembros «Sin asignar» (cliente sin vendedor) o «Desconocido» "
+          "(vendedor que no llegó al almacén).")
     w(f"- {n(no_orders)} de {n(customers)} clientes ({pct(no_orders, customers)}) "
       "no tienen ninguna compra. Cuentan en `dim_cliente` pero no pesan en ninguna "
       "medida de ventas.")

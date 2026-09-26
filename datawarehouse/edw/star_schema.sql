@@ -13,7 +13,8 @@
 -- This is the EDW: the target of layer 7 (Load) of the pipeline in
 -- pipeline/. The pipeline works in its own database (staging); only
 -- its Load writes here. The data-mart views built on top of the EDW
--- are in datawarehouse/data_marts/data_marts.sql.
+-- are in datawarehouse/data_marts/data_marts.sql, and the special
+-- members (Desconocido, Sin asignar) in special_members.sql.
 -- ============================================================
 
 -- The pipeline staging area used to be a schema of this database; it now
@@ -139,8 +140,10 @@ CREATE TABLE fact_ventas (
     tiempo_key          INTEGER NOT NULL REFERENCES dim_tiempo(tiempo_key),
     cliente_key         INTEGER NOT NULL REFERENCES dim_cliente(cliente_key),
     producto_key        INTEGER NOT NULL REFERENCES dim_producto(producto_key),
-    empleado_key        INTEGER          REFERENCES dim_empleado(empleado_key),
-    oficina_key         INTEGER          REFERENCES dim_oficina(oficina_key),
+    -- No key is NULL: a sale without a resolved sales rep points to the
+    -- special members of dim_empleado and dim_oficina (special_members.sql).
+    empleado_key        INTEGER NOT NULL REFERENCES dim_empleado(empleado_key),
+    oficina_key         INTEGER NOT NULL REFERENCES dim_oficina(oficina_key),
     estado_key          INTEGER NOT NULL REFERENCES dim_estado_orden(estado_key),
 
     -- Degenerate dimensions (source identifiers).

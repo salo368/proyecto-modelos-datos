@@ -10,8 +10,8 @@
 --   dim_tiempo: 1096 filas
 --   dim_cliente: 122 filas
 --   dim_producto: 110 filas
---   dim_empleado: 53 filas
---   dim_oficina: 7 filas
+--   dim_empleado: 55 filas
+--   dim_oficina: 9 filas
 --   dim_estado_orden: 6 filas
 --   fact_ventas: 2996 filas
 --   fact_llamadas_servicio: 108 filas
@@ -43,7 +43,8 @@ DROP TABLE IF EXISTS dim_tiempo CASCADE;
 -- This is the EDW: the target of layer 7 (Load) of the pipeline in
 -- pipeline/. The pipeline works in its own database (staging); only
 -- its Load writes here. The data-mart views built on top of the EDW
--- are in datawarehouse/data_marts/data_marts.sql.
+-- are in datawarehouse/data_marts/data_marts.sql, and the special
+-- members (Desconocido, Sin asignar) in special_members.sql.
 -- ============================================================
 
 -- The pipeline staging area used to be a schema of this database; it now
@@ -160,8 +161,10 @@ CREATE TABLE fact_ventas (
     tiempo_key          INTEGER NOT NULL REFERENCES dim_tiempo(tiempo_key),
     cliente_key         INTEGER NOT NULL REFERENCES dim_cliente(cliente_key),
     producto_key        INTEGER NOT NULL REFERENCES dim_producto(producto_key),
-    empleado_key        INTEGER          REFERENCES dim_empleado(empleado_key),
-    oficina_key         INTEGER          REFERENCES dim_oficina(oficina_key),
+    -- No key is NULL: a sale without a resolved sales rep points to the
+    -- special members of dim_empleado and dim_oficina (special_members.sql).
+    empleado_key        INTEGER NOT NULL REFERENCES dim_empleado(empleado_key),
+    oficina_key         INTEGER NOT NULL REFERENCES dim_oficina(oficina_key),
     estado_key          INTEGER NOT NULL REFERENCES dim_estado_orden(estado_key),
 
     -- Degenerate dimensions (source identifiers).
@@ -1645,8 +1648,10 @@ INSERT INTO dim_producto (producto_key, codigo_producto, nombre_producto, linea_
     (109, 'S72_1253', 'Boeing X-32A JSF', 'Planes', 'Unique, diecast airplane and helicopter replicas suitable for collections, as well as home, office or classroom decorations. Models contain stunning details such as official logos and insignias, rotating jet engines and propellers, retractable wheels, and so on. Most come fully assembled and with a certificate of authenticity from their manufacturers.', '1:72', 'Motor City Art Classics', '32.77', '49.66', TRUE, TRUE),
     (110, 'S72_3212', 'Pont Yacht', 'Ships', 'The perfect holiday or anniversary gift for executives, clients, friends, and family. These handcrafted model ships are unique, stunning works of art that will be treasured for generations! They come fully assembled and ready for display in the home or office. We guarantee the highest quality, and best value.', '1:72', 'Unimax Art Galleries', '33.30', '54.60', TRUE, TRUE);
 
--- dim_empleado: 53 filas
+-- dim_empleado: 55 filas
 INSERT INTO dim_empleado (empleado_key, numero_empleado, sistema_origen, nombre, apellido, email, cargo, numero_oficina) VALUES
+    (-1, -1, 'N/A', 'Desconocido', 'N/A', 'N/A', 'Desconocido', 'N/A'),
+    (-2, -2, 'N/A', 'Sin asignar', 'N/A', 'N/A', 'Sin asignar', 'N/A'),
     (1, 1002, 'classicmodels', 'Diane', 'Murphy', 'dmurphy@classicmodelcars.com', 'President', '1'),
     (2, 1056, 'classicmodels', 'Mary', 'Patterson', 'mpatterso@classicmodelcars.com', 'VP Sales', '1'),
     (3, 1076, 'classicmodels', 'Jeff', 'Firrelli', 'jfirrelli@classicmodelcars.com', 'VP Marketing', '1'),
@@ -1701,8 +1706,10 @@ INSERT INTO dim_empleado (empleado_key, numero_empleado, sistema_origen, nombre,
     (52, 29, 'customerservice', 'Sandra', 'Wasinger', 'wasinger@classicmodelcars.com', 'Agente de Servicio al Cliente', NULL),
     (53, 30, 'customerservice', 'Keitha', 'Gibbons', 'gibbons@classicmodelcars.com', 'Agente de Servicio al Cliente', NULL);
 
--- dim_oficina: 7 filas
+-- dim_oficina: 9 filas
 INSERT INTO dim_oficina (oficina_key, codigo_oficina, ciudad, pais, region, territorio) VALUES
+    (-1, '-1', 'Desconocida', 'N/A', 'N/A', 'N/A'),
+    (-2, '-2', 'Sin asignar', 'N/A', 'N/A', 'N/A'),
     (1, '1', 'San Francisco', 'USA', 'CA', 'NA'),
     (2, '2', 'Boston', 'USA', 'MA', 'NA'),
     (3, '3', 'NYC', 'USA', 'NY', 'NA'),

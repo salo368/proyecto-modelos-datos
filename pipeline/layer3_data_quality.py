@@ -40,6 +40,8 @@ RULES = {
                               ("NEGOCIO", "DEFINICION_INCONSISTENTE", "ADVERTENCIA"),
     "consistencia_entre_fuentes_producto":
                               ("NEGOCIO", "DEFINICION_INCONSISTENTE", "ADVERTENCIA"),
+    "referencia_opcional_no_resuelta":
+                              ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "ADVERTENCIA"),
     # --- propagation: evaluated last, over the rejections of every rule above ---
     "padre_rechazado":        ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "RECHAZADO"),
 }
@@ -104,6 +106,16 @@ REFERENCES = [
     ("cs_customer_calls", "productcode", "products", "productCode",
      "producto sin equivalente en classicmodels (dimension conformada)"),
 ]
+
+# References the model can leave unresolved. A missing or rejected parent
+# only raises referencia_opcional_no_resuelta (a warning) and the record
+# goes on: the sales rep of a customer becomes the special member
+# 'Desconocido' of dim_empleado and dim_oficina
+# (datawarehouse/edw/special_members.sql), and reportsTo is not modelled.
+OPTIONAL_REFERENCES = {
+    ("customers", "salesRepEmployeeNumber"),
+    ("employees", "reportsTo"),
+}
 
 
 def required_columns():
@@ -205,16 +217,17 @@ def business_checks(data, log):
     for child, col, parent, parent_col, desc in REFERENCES:
         if child not in data or parent not in data:
             continue
+        rule = ("referencia_opcional_no_resuelta" if (child, col) in OPTIONAL_REFERENCES
+                else "integridad_referencial")
         source, df = data[child]
         valid = keys(parent, parent_col)
-        if child not in counted:
-            log.check("integridad_referencial", len(df))
-            counted.add(child)
+        if (rule, child) not in counted:
+            log.check(rule, len(df))
+            counted.add((rule, child))
         for _, row in df.iterrows():
             v = row.get(col)
             if pd.notna(v) and v not in valid:
-                log.fail("integridad_referencial", source, child, row,
-                         f"{col}={v}: {desc}")
+                log.fail(rule, source, child, row, f"{col}={v}: {desc}")
 
     # --- Values that must be positive (credit limit may be zero) ---
     positives = [("orderdetails", ["quantityOrdered", "priceEach"]),
@@ -316,6 +329,24 @@ def business_checks(data, log):
             "consistencia_entre_fuentes_producto")
 
 
+def orphans(data, rejected, reference):
+    """(source, row, value) of each child record, not yet rejected, whose
+    reference points to a key that only rejected parents carry."""
+    child, col, parent, parent_col, _ = reference
+    if not rejected[parent]:
+        return
+    parents = data[parent][1]
+    dropped = parents["_nro_fila"].isin(rejected[parent])
+    # A key survives if any record that carries it was kept.
+    gone = (set(parents.loc[dropped, parent_col].dropna())
+            - set(parents.loc[~dropped, parent_col].dropna()))
+    source, df = data[child]
+    for _, row in df.iterrows():
+        v = row.get(col)
+        if int(row["_nro_fila"]) not in rejected[child] and pd.notna(v) and v in gone:
+            yield source, row, v
+
+
 def cascade_rejections(data, log):
     """Reject the records whose parent was rejected, down every level.
 
@@ -324,37 +355,36 @@ def cascade_rejections(data, log):
     it: the orders of a rejected customer and the lines of those orders.
     Left in Clean Staging, they would point to a dimension member that
     never reaches the warehouse and the fact load would stop. The
-    rejection is propagated along REFERENCES until no new record falls.
+    rejection is propagated along the mandatory REFERENCES until no new
+    record falls. Along OPTIONAL_REFERENCES it is not: the child only
+    gets a warning and keeps going.
     """
     rejected = defaultdict(set)                   # table -> rejected row numbers
     for f in log.failures:
         if f["accion"] == "RECHAZADO":
             rejected[f["tabla_origen"]].add(f["nro_fila"])
-    for child in {c for c, *_ in REFERENCES if c in data}:
+    present = [r for r in REFERENCES if r[0] in data]
+    mandatory = [r for r in present if (r[0], r[1]) not in OPTIONAL_REFERENCES]
+    optional = [r for r in present if (r[0], r[1]) in OPTIONAL_REFERENCES]
+    for child in {r[0] for r in mandatory}:
         log.check("padre_rechazado", len(data[child][1]))
 
     changed = True
     while changed:
         changed = False
-        for child, col, parent, parent_col, _ in REFERENCES:
-            if child not in data or not rejected[parent]:
-                continue
-            parents = data[parent][1]
-            dropped = parents["_nro_fila"].isin(rejected[parent])
-            # A key survives if any record that carries it was kept.
-            gone = (set(parents.loc[dropped, parent_col].dropna())
-                    - set(parents.loc[~dropped, parent_col].dropna()))
-            if not gone:
-                continue
-            source, df = data[child]
-            for _, row in df.iterrows():
-                v = row.get(col)
-                if int(row["_nro_fila"]) in rejected[child] or pd.isna(v) or v not in gone:
-                    continue
+        for ref in mandatory:
+            child, col, parent = ref[:3]
+            for source, row, v in orphans(data, rejected, ref):
                 log.fail("padre_rechazado", source, child, row,
                          f"{col}={v}: el registro de {parent} fue rechazado")
                 rejected[child].add(int(row["_nro_fila"]))
                 changed = True
+
+    for ref in optional:
+        child, col, parent = ref[:3]
+        for source, row, v in orphans(data, rejected, ref):
+            log.fail("referencia_opcional_no_resuelta", source, child, row,
+                     f"{col}={v}: el registro de {parent} fue rechazado")
 
 
 def run(run_id):

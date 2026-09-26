@@ -40,7 +40,7 @@ Los procesos solo encadenan capas, abren y cierran la corrida y la registran en 
 
 | Proceso | Capas | Qué hace |
 |---|---|---|
-| [`run_staging.py`](run_staging.py) | 1 a 4 | Lee las 13 tablas de las fuentes una sola vez, incluidas `payments` y `cs_customer_products`, que el modelo actual no usa. Las perfila, evalúa las 13 reglas de calidad (la última propaga los rechazos a los registros que dependen de ellos) y separa limpios de rechazados |
+| [`run_staging.py`](run_staging.py) | 1 a 4 | Lee las 13 tablas de las fuentes una sola vez, incluidas `payments` y `cs_customer_products`, que el modelo actual no usa. Las perfila, evalúa las 14 reglas de calidad (la última propaga los rechazos a los registros que dependen de ellos) y separa limpios de rechazados |
 | [`run_dimensions.py`](run_dimensions.py) | 5 a 7 | Lee `stg_clean` de la última corrida de staging exitosa (no las fuentes), conforma cada área temática y carga las seis dimensiones por llave de negocio, sin cambiar las llaves subrogadas ya asignadas |
 | [`run_facts.py`](run_facts.py) | 5 a 7 | Lee la misma corrida de staging, y se niega a arrancar si las dimensiones cargadas vienen de otra. Hace los joins, resuelve las llaves subrogadas contra las dimensiones, calcula las medidas y reemplaza los dos hechos. Si una llave obligatoria queda sin resolver, detiene la carga en vez de escribir un hecho huérfano |
 
@@ -61,7 +61,14 @@ Tres garantías sostienen esa tabla:
 - **Llaves subrogadas estables.** Las dimensiones se cargan por *upsert* sobre su llave de negocio: los miembros nuevos se insertan y los existentes se sobrescriben (tipo 1) sin cambiar su `*_key`. Recargar las dimensiones no invalida los hechos ya cargados, así que nunca quedan vacíos entre una rama y la otra. Un miembro que desaparece de la fuente, o que la capa 3 rechaza en una corrida posterior, se conserva con sus últimos atributos, porque hechos anteriores pueden apuntarle. Los hechos, en cambio, se reemplazan completos.
 - **Dimensiones y hechos de la misma corrida.** `run_facts.py` se niega a arrancar si las dimensiones cargadas no vienen de la última corrida de staging exitosa, y dice qué correr primero. Sin eso, los hechos de datos nuevos se resolverían contra dimensiones viejas.
 
-Además, un registro rechazado no puede detener la carga de hechos: la regla `padre_rechazado` propaga el rechazo a todo lo que depende de él (un cliente rechazado arrastra sus órdenes, las líneas de esas órdenes, sus pagos y sus llamadas), y `dim_tiempo` cubre los años completos de las fechas de ventas y llamadas en vez de un rango fijo.
+Además, un registro rechazado no puede detener la carga de hechos, y `dim_tiempo` cubre los años completos de las fechas de ventas y llamadas en vez de un rango fijo. Lo que pasa con los registros que dependen de uno rechazado depende de la referencia:
+
+| Referencia | Si el padre se rechaza | Ejemplo |
+|---|---|---|
+| Obligatoria | `padre_rechazado` rechaza al hijo, en cascada, hasta el último nivel | Un cliente rechazado arrastra sus órdenes, las líneas de esas órdenes, sus pagos y sus llamadas |
+| Opcional: el vendedor del cliente y el jefe del empleado | `referencia_opcional_no_resuelta` solo advierte; el hijo sigue | Si se rechaza un vendedor, sus clientes y sus ventas se cargan, y las ventas apuntan al miembro especial `-1 Desconocido` de `dim_empleado` y `dim_oficina` |
+
+Una venta cuyo cliente no tiene vendedor apunta a `-2 Sin asignar`. Así `fact_ventas` no tiene llaves nulas y su monto sigue cuadrando con la fuente (ver [miembros especiales](../datawarehouse/edw/README.md#miembros-especiales)). Si el vendedor rechazado ya estaba en el almacén de una carga anterior, la dimensión lo conserva con sus últimos datos válidos y las ventas apuntan a él.
 
 Una corrida cuyo proceso muere sin llegar a cerrarla (por ejemplo, con `kill -9`) queda en `EN_CURSO`: nunca se lee, porque los procesos solo leen corridas `OK`, pero tampoco se cierra sola.
 
@@ -74,7 +81,7 @@ Lo comprueban dos pruebas contra el almacén real: [`tests/test_load_atomic.py`]
 | `campos_obligatorios` (columnas `NOT NULL` según `db_column` del repositorio de metadatos) | Técnica | Rechazo |
 | `tipo_de_dato_valido` (fechas y números interpretables) | Técnica | Rechazo |
 | `formato_email` | Técnica | Advertencia |
-| `integridad_referencial` (dentro de cada fuente y de las llamadas contra `classicmodels`) | Negocio | Rechazo |
+| `integridad_referencial` (referencias obligatorias, dentro de cada fuente y de las llamadas contra `classicmodels`) | Negocio | Rechazo |
 | `valores_positivos` | Negocio | Rechazo |
 | `secuencia_de_fechas` | Negocio | Rechazo |
 | `envio_consistente_con_estado` | Negocio | Rechazo |
@@ -82,6 +89,7 @@ Lo comprueban dos pruebas contra el almacén real: [`tests/test_load_atomic.py`]
 | `precio_sugerido_coherente` | Negocio | Advertencia |
 | `cliente_con_vendedor` | Negocio | Advertencia |
 | `consistencia_entre_fuentes_cliente` / `_producto` | Negocio | Advertencia |
+| `referencia_opcional_no_resuelta` (vendedor del cliente o jefe del empleado inexistente o rechazado) | Negocio | Advertencia |
 | `padre_rechazado` (se evalúa al final: rechaza, en cascada, los registros que apuntan a uno rechazado) | Negocio | Rechazo |
 
 Con los datos originales, los 4.335 registros quedan en `stg_clean` y `stg_error_log` tiene 22 advertencias de `cliente_con_vendedor`.
@@ -97,6 +105,7 @@ Con los datos originales, los 4.335 registros quedan en `stg_clean` y `stg_error
 | Empleados sin llave común entre fuentes | Llave compuesta en `dim_empleado` | `empleado_conformidad_fuentes` |
 | Clientes y productos presentes en ambas fuentes | Dimensiones conformadas | `cliente_conformidad_fuentes`, `producto_conformidad_fuentes` |
 | Órdenes canceladas, en disputa o en espera | Se cargan; `es_efectiva` permite excluirlas | `estado_orden_no_efectivo` |
+| Clientes sin vendedor (`salesRepEmployeeNumber` nula en 22 de 122) | Sus ventas apuntan al miembro `-2 Sin asignar`, no a una llave nula | `venta_vendedor_no_resuelto` |
 
 Las cifras de cada capa en la última carga (registros que entran y salen, nulos resueltos y conservados, y sobre qué parte de los datos se apoya cada análisis) están en [`docs/data_quality_report.md`](../docs/data_quality_report.md).
 
@@ -104,6 +113,6 @@ Las cifras de cada capa en la última carga (registros que entran y salen, nulos
 
 | Prueba | Qué comprueba |
 |---|---|
-| [`tests/test_dq_reject_path.py`](tests/test_dq_reject_path.py) | Capas 3 y 4: arma un lote sintético con un defecto por regla y verifica que los bloqueantes se rechacen, que el rechazo se propague a los registros hijos (dos niveles y entre fuentes), que las advertencias pasen y que ningún registro sano se marque |
+| [`tests/test_dq_reject_path.py`](tests/test_dq_reject_path.py) | Capas 3 y 4: arma un lote sintético con un defecto por regla y verifica que los bloqueantes se rechacen, que el rechazo se propague por las referencias obligatorias (dos niveles y entre fuentes) y no por las opcionales, que las advertencias pasen y que ningún registro sano se marque |
 | [`tests/test_load_atomic.py`](tests/test_load_atomic.py) | Capa 7: provoca una falla a mitad de un Load que combina el upsert de una dimensión y el reemplazo de un hecho, y verifica que el almacén quede exactamente como estaba |
 | [`tests/test_resume.py`](tests/test_resume.py) | Retoma: tras una corrida de staging nueva, verifica que los hechos se nieguen a correr antes que las dimensiones, que recargar las dimensiones no cambie sus llaves ni toque los hechos y que al final el almacén quede idéntico |

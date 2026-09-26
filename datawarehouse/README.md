@@ -25,6 +25,7 @@ El almacén no transforma nada: recibe lo que el pipeline deja listo en su capa 
 datawarehouse/
 ├── edw/                         EDW → schema public
 │   ├── star_schema.sql            Dimensiones, hechos e índices
+│   ├── special_members.sql        Miembros especiales: -1 Desconocido, -2 Sin asignar
 │   ├── business_questions.sql     Consultas de negocio sobre el EDW
 │   └── backup/dw_backup.sql       Backup del EDW y los data marts con todos los datos
 ├── data_marts/                  Data marts → schema dm
