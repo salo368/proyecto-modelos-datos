@@ -35,6 +35,10 @@ CONFORMED_DIMENSIONS = {"dim_cliente", "dim_producto", "dim_tiempo"}
 
 METADATA_CORE_TABLES = {"data_source", "db_table", "db_column", "business_entity",
                         "business_attribute", "column_business_mapping"}
+# Audit tables: their references are drawn dashed and do not shape the
+# layout, so the star keeps its form.
+AUDIT_TABLES = {"dim_lote_carga"}
+AUDIT_COLOR = "#fbf6e6"
 
 
 def introspect(url, schema, only=None):
@@ -69,6 +73,8 @@ def erd_dot(model, title):
             return FACT_COLOR
         if table in CONFORMED_DIMENSIONS:
             return CONFORMED_COLOR
+        if table in AUDIT_TABLES:
+            return AUDIT_COLOR
         return DEFAULT_COLOR
 
     out = [
@@ -91,7 +97,10 @@ def erd_dot(model, title):
         )
     for table, d in model.items():
         for _, referenced in d["fks"]:
-            if referenced in model:
+            if referenced in AUDIT_TABLES:
+                out.append(f"    {referenced} -> {table} "
+                           '[style=dashed, color="#b7a36a", constraint=false];')
+            elif referenced in model:
                 out.append(f"    {referenced} -> {table};")
     out.append("}")
     return "\n".join(out)

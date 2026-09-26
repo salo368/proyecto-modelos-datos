@@ -10,7 +10,7 @@ bad-transactions log, with the action the rule dictates:
     ADVERTENCIA  the record continues; the anomaly is only logged
 
     Input   stg_initial_* (layer 2)
-    Output  stg_error_log
+    Output  stg_error_log; stg_dq_resumen (records checked and failed per rule)
     Reader  read_failures(run_id), used by layer 4
 """
 from collections import defaultdict
@@ -18,7 +18,7 @@ from collections import defaultdict
 import pandas as pd
 import sqlalchemy as sa
 
-from common import META, STAGING, insert
+from common import META, STAGING, insert, write_quality
 from layer2_initial_staging import read_initial
 
 # Rule -> (dq class, category, action). Names match dq_rule.rule_name
@@ -28,6 +28,8 @@ RULES = {
     "campos_obligatorios":    ("TECNICA", "CAMPO_FALTANTE",   "RECHAZADO"),
     "tipo_de_dato_valido":    ("TECNICA", "DATO_INVALIDO",    "RECHAZADO"),
     "formato_email":          ("TECNICA", "DATO_INVALIDO",    "ADVERTENCIA"),
+    "registro_duplicado":     ("TECNICA", "DATO_DUPLICADO",   "RECHAZADO"),
+    "llave_duplicada":        ("TECNICA", "DATO_DUPLICADO",   "RECHAZADO"),
     # --- business checks ---
     "integridad_referencial": ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "RECHAZADO"),
     "valores_positivos":      ("NEGOCIO", "DATO_INEXACTO",    "RECHAZADO"),
@@ -44,11 +46,14 @@ RULES = {
                               ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "ADVERTENCIA"),
     # --- propagation: evaluated last, over the rejections of every rule above ---
     "padre_rechazado":        ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "RECHAZADO"),
+    "orden_con_lineas_rechazadas":
+                              ("NEGOCIO", "INTEGRIDAD_REFERENCIAL", "ADVERTENCIA"),
 }
 
-# Columns that identify a record in the error log. cs_customer_calls
-# has no primary key in its source, so its references plus the date
-# are used instead.
+# Columns that identify a record in the error log, and the key that must
+# be unique in each table (registro_duplicado, llave_duplicada).
+# cs_customer_calls has no primary key in its source, so its references
+# plus the date and time of the call are used instead.
 RECORD_KEYS = {
     "customers": ["customerNumber"], "employees": ["employeeNumber"],
     "offices": ["officeCode"], "products": ["productCode"],
@@ -107,6 +112,11 @@ REFERENCES = [
      "producto sin equivalente en classicmodels (dimension conformada)"),
 ]
 
+# Header -> detail. A header that is kept while some of its details were
+# rejected reaches the warehouse incomplete: orden_con_lineas_rechazadas
+# warns about it.
+HEADER_DETAIL = [("orders", "orderNumber", "orderdetails", "orderNumber")]
+
 # References the model can leave unresolved. A missing or rejected parent
 # only raises referencia_opcional_no_resuelta (a warning) and the record
 # goes on: the sales rep of a customer becomes the special member
@@ -159,8 +169,43 @@ class QualityLog:
         self.failed[rule] += 1
 
 
+def uniqueness_checks(data, log):
+    """Records that share the key of their table.
+
+    Exact copies of an earlier record (every column equal) are dropped:
+    the first one goes on and the copies are rejected as
+    registro_duplicado. Records that share the key but differ in any
+    other column are all rejected as llave_duplicada, because nothing
+    tells which version is right. Their children then follow them
+    (padre_rechazado), since the key no longer reaches Clean Staging.
+    """
+    for table, (source, df) in data.items():
+        key = [c for c in RECORD_KEYS.get(table, []) if c in df.columns]
+        if not key:
+            continue
+        log.check("registro_duplicado", len(df))
+        log.check("llave_duplicada", len(df))
+        body = [c for c in df.columns if c != "_nro_fila"]
+        repeated = df[df.duplicated(key, keep=False)]
+        for values, group in repeated.groupby(key, dropna=False, sort=False):
+            label = "|".join(str(v) for v in (values if isinstance(values, tuple) else (values,)))
+            group = group.sort_values("_nro_fila")
+            first = int(group["_nro_fila"].iloc[0])
+            if len(group[body].drop_duplicates()) == 1:
+                for _, row in group.iloc[1:].iterrows():
+                    log.fail("registro_duplicado", source, table, row,
+                             f"Copia exacta del registro {first} (llave {label})")
+            else:
+                rows = ", ".join(str(int(n)) for n in group["_nro_fila"])
+                for _, row in group.iterrows():
+                    log.fail("llave_duplicada", source, table, row,
+                             f"La llave {label} aparece en {len(group)} registros "
+                             f"distintos (filas {rows})")
+
+
 def technical_checks(data, log):
-    """Missing and invalid data."""
+    """Duplicated, missing and invalid data."""
+    uniqueness_checks(data, log)
     required = required_columns()
     for table, (source, df) in data.items():
         # Missing data: NOT NULL columns according to the repository.
@@ -386,6 +431,34 @@ def cascade_rejections(data, log):
             log.fail("referencia_opcional_no_resuelta", source, child, row,
                      f"{col}={v}: el registro de {parent} fue rechazado")
 
+    incomplete_headers(data, rejected, log)
+
+
+def incomplete_headers(data, rejected, log):
+    """Warn about the kept headers that lost some of their details.
+
+    The rejection goes down from an order to its lines, but not up: an
+    order whose line was rejected is still loaded, with fewer lines than
+    in the source. Its total and its line count in the warehouse are
+    then short, so the order is logged with a warning.
+    """
+    for header, key, detail, detail_key in HEADER_DETAIL:
+        if header not in data or detail not in data:
+            continue
+        source, headers = data[header]
+        details = data[detail][1]
+        log.check("orden_con_lineas_rechazadas", len(headers))
+        dropped = details["_nro_fila"].isin(rejected[detail])
+        lost = details.loc[dropped].groupby(detail_key).size()
+        total = details.groupby(detail_key).size()
+        for _, row in headers.iterrows():
+            k = row.get(key)
+            if int(row["_nro_fila"]) in rejected[header] or k not in lost.index:
+                continue
+            log.fail("orden_con_lineas_rechazadas", source, header, row,
+                     f"{int(lost[k])} de {int(total[k])} lineas rechazadas: "
+                     "la orden llega incompleta al almacen")
+
 
 def run(run_id):
     print("\n[Layer 3] Data Quality")
@@ -396,13 +469,14 @@ def run(run_id):
     cascade_rejections(data, log)
 
     insert("stg_error_log", [{"run_id": run_id, **f} for f in log.failures])
+    write_quality(run_id, 3, [(r, log.evaluated[r], log.failed[r]) for r in RULES])
 
     print(f"    {'Rule':<38}{'Class':<9}{'Action':<13}{'Checked':>9}{'Failed':>8}")
     for rule, (dq_class, _, action) in RULES.items():
         print(f"    {rule:<38}{dq_class:<9}{action:<13}"
               f"{log.evaluated[rule]:>9}{log.failed[rule]:>8}")
     print(f"    {len(log.failures)} entries written to stg_error_log")
-    return log
+    return len(log.failures)
 
 
 def read_failures(run_id):

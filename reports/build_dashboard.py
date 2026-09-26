@@ -95,9 +95,10 @@ ORDER BY t.anio_mes
     },
     {
         "name": "Intensidad de servicio por producto",
-        "description": "Llamadas al centro de servicio por unidad vendida. "
-                       "Cruza los dos hechos del almacen: es la pregunta que "
-                       "ninguna de las dos fuentes responde por si sola.",
+        "description": "Llamadas al centro de servicio por unidad vendida en "
+                       "ordenes efectivas. Cruza los dos hechos del almacen: es "
+                       "la pregunta que ninguna de las dos fuentes responde por "
+                       "si sola.",
         "display": "bar",
         "sql": """
 SELECT nombre_producto                  AS producto,
@@ -131,8 +132,9 @@ ORDER BY monto_vendido DESC
     },
     {
         "name": "Clientes: compras frente a llamadas",
-        "description": "Cada punto es un cliente. Eje X lo que compro, eje Y "
-                       "cuantas veces llamo al centro de servicio.",
+        "description": "Cada punto es un cliente. Eje X lo que compro en "
+                       "ordenes efectivas, eje Y cuantas veces llamo al centro "
+                       "de servicio.",
         "display": "scatter",
         "sql": """
 SELECT nombre_cliente                   AS cliente,

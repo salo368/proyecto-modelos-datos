@@ -10,11 +10,11 @@ measures. It must run after the dimension branch has been loaded.
     Servicio  fact_llamadas_servicio  3 key lookups, measures
 
     Input   stg_clean (layer 4); dim_* (EDW) for the key lookups
-    Output  stg_transform
+    Output  stg_transform; stg_dq_resumen (profiling findings handled here)
 """
 import pandas as pd
 
-from common import DW, write_payload
+from common import DW, write_payload, write_quality
 from layer4_clean_staging import read_clean
 
 TARGETS = ["fact_ventas", "fact_llamadas_servicio"]
@@ -25,7 +25,7 @@ TARGETS = ["fact_ventas", "fact_llamadas_servicio"]
 UNKNOWN = -1        # 'Desconocido': the sales rep did not reach the warehouse
 NOT_ASSIGNED = -2   # 'Sin asignar': the customer has no sales rep
 
-_quality_results = []   # (rule, evaluated, failed) -> dq_result
+_quality_results = []   # (rule, evaluated, failed) -> stg_dq_resumen
 
 
 def record_quality(rule, evaluated, failed, message):
@@ -209,7 +209,10 @@ def area_service(run_id, staging_run):
 
 
 def run(run_id, staging_run):
-    """Transform both facts; returns (rows transformed, quality results)."""
+    """Transform both facts; returns the rows written. The quality
+    findings go to stg_dq_resumen, and from there to dq_result."""
     print("\n[Layer 5] Transformation (facts)")
+    _quality_results.clear()
     rows = area_sales(run_id, staging_run) + area_service(run_id, staging_run)
-    return rows, _quality_results
+    write_quality(run_id, 5, _quality_results)
+    return rows

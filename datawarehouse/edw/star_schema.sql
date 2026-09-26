@@ -10,6 +10,9 @@
 -- dim_producto. Customers and products share the same business key in
 -- both sources, which is what allows the two facts to be combined.
 --
+-- dim_lote_carga is the audit dimension: every dimension and fact row
+-- carries the key of the load that last wrote it.
+--
 -- This is the EDW: the target of layer 7 (Load) of the pipeline in
 -- pipeline/. The pipeline works in its own database (staging); only
 -- its Load writes here. The data-mart views built on top of the EDW
@@ -30,6 +33,33 @@ DROP TABLE IF EXISTS dim_producto            CASCADE;
 DROP TABLE IF EXISTS dim_empleado            CASCADE;
 DROP TABLE IF EXISTS dim_oficina             CASCADE;
 DROP TABLE IF EXISTS dim_estado_orden        CASCADE;
+DROP TABLE IF EXISTS dim_lote_carga          CASCADE;
+
+-- ------------------------------------------------------------
+-- Audit dimension: one row per load that reached the warehouse.
+--
+-- Layer 7 writes it in the same transaction as the data, so the
+-- warehouse itself knows which pipeline run and which staging run each
+-- row came from. It is what the fact process checks before loading
+-- (the dimensions must come from the same staging run as the facts),
+-- so the check stays right when the warehouse is rebuilt or restored
+-- from a backup. The key is the run_id of the load in the staging
+-- database (staging_dw.etl_run).
+--
+-- The facts reference it with a foreign key, as any dimension. The
+-- dimensions carry lote_carga_key as a plain audit column, with no
+-- foreign key, so the model stays a star and not a snowflake. Rows
+-- written outside the pipeline, like the special members, have no load
+-- and carry NULL.
+-- ------------------------------------------------------------
+CREATE TABLE dim_lote_carga (
+    lote_carga_key  INTEGER     PRIMARY KEY,   -- staging_dw.etl_run.run_id of the load
+    proceso         VARCHAR(20) NOT NULL,      -- 'dimensiones' | 'hechos'
+    run_staging     INTEGER     NOT NULL,      -- staging run the load read
+    cargado_en      TIMESTAMP   NOT NULL DEFAULT now(),
+    filas           INTEGER     NOT NULL,
+    CHECK (proceso IN ('dimensiones', 'hechos'))
+);
 
 -- ------------------------------------------------------------
 -- Conformed dimensions
@@ -48,7 +78,8 @@ CREATE TABLE dim_tiempo (
     dia_semana      SMALLINT    NOT NULL,   -- 1 = Monday, 7 = Sunday
     nombre_dia      VARCHAR(12) NOT NULL,
     es_fin_semana   BOOLEAN     NOT NULL,
-    anio_mes        CHAR(7)     NOT NULL    -- '2003-01', monthly grouping key
+    anio_mes        CHAR(7)     NOT NULL,   -- '2003-01', monthly grouping key
+    lote_carga_key  INTEGER   -- audit: load that last wrote the row
 );
 
 -- Customer, conformed across both sources. direccion_completa merges
@@ -67,7 +98,8 @@ CREATE TABLE dim_cliente (
     pais                    VARCHAR(100),
     limite_credito          NUMERIC(12,2),
     presente_en_ventas      BOOLEAN NOT NULL DEFAULT FALSE,
-    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE
+    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE,
+    lote_carga_key          INTEGER    -- audit: load that last wrote the row
 );
 
 -- Product, conformed across both sources, with its product line
@@ -84,7 +116,8 @@ CREATE TABLE dim_producto (
     precio_compra           NUMERIC(12,2),
     precio_msrp             NUMERIC(12,2),
     presente_en_ventas      BOOLEAN NOT NULL DEFAULT FALSE,
-    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE
+    presente_en_servicio    BOOLEAN NOT NULL DEFAULT FALSE,
+    lote_carga_key          INTEGER    -- audit: load that last wrote the row
 );
 
 -- ------------------------------------------------------------
@@ -104,6 +137,7 @@ CREATE TABLE dim_empleado (
     email               VARCHAR(140),
     cargo               VARCHAR(80),
     numero_oficina      VARCHAR(20),
+    lote_carga_key      INTEGER,   -- audit: load that last wrote the row
     UNIQUE (numero_empleado, sistema_origen)
 );
 
@@ -117,7 +151,8 @@ CREATE TABLE dim_oficina (
     ciudad          VARCHAR(100),
     pais            VARCHAR(100),
     region          VARCHAR(100),
-    territorio      VARCHAR(20)
+    territorio      VARCHAR(20),
+    lote_carga_key  INTEGER   -- audit: load that last wrote the row
 );
 
 -- es_efectiva is FALSE for Cancelled, Disputed and On Hold, so reports
@@ -125,7 +160,8 @@ CREATE TABLE dim_oficina (
 CREATE TABLE dim_estado_orden (
     estado_key      SERIAL PRIMARY KEY,
     estado          VARCHAR(30) NOT NULL UNIQUE,
-    es_efectiva     BOOLEAN     NOT NULL
+    es_efectiva     BOOLEAN     NOT NULL,
+    lote_carga_key  INTEGER   -- audit: load that last wrote the row
 );
 
 -- ------------------------------------------------------------
@@ -159,6 +195,8 @@ CREATE TABLE fact_ventas (
     precio_msrp         NUMERIC(12,2),            -- non-additive
     dias_hasta_envio    SMALLINT,                 -- semi-additive; NULL if not shipped
 
+    lote_carga_key      INTEGER NOT NULL REFERENCES dim_lote_carga(lote_carga_key),
+
     UNIQUE (numero_orden, numero_linea)
 );
 
@@ -177,7 +215,9 @@ CREATE TABLE fact_llamadas_servicio (
     texto_llamada       TEXT,                     -- degenerate dimension
 
     cantidad_llamadas   SMALLINT NOT NULL DEFAULT 1,   -- additive
-    longitud_texto      INTEGER                        -- additive
+    longitud_texto      INTEGER,                       -- additive
+
+    lote_carga_key      INTEGER NOT NULL REFERENCES dim_lote_carga(lote_carga_key)
 );
 
 -- ------------------------------------------------------------
@@ -194,3 +234,5 @@ CREATE INDEX idx_fl_tiempo   ON fact_llamadas_servicio(tiempo_key);
 CREATE INDEX idx_fl_cliente  ON fact_llamadas_servicio(cliente_key);
 CREATE INDEX idx_fl_producto ON fact_llamadas_servicio(producto_key);
 CREATE INDEX idx_fl_empleado ON fact_llamadas_servicio(empleado_key);
+CREATE INDEX idx_fv_lote     ON fact_ventas(lote_carga_key);
+CREATE INDEX idx_fl_lote     ON fact_llamadas_servicio(lote_carga_key);

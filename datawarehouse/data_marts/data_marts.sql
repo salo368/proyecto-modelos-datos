@@ -4,10 +4,15 @@
 -- Views built on top of the star schema in public. Each one raises
 -- the grain and keeps a single subject:
 --
---   dm.vw_interaccion_cliente_producto  sales and service calls per
---                                       customer x product x month
+--   dm.vw_interaccion_cliente_producto  effective sales and service
+--                                       calls per customer x product x
+--                                       month
 --   dm.vw_ventas_mensuales_linea        effective sales per month x
 --                                       product line
+--
+-- Both count only effective orders (dim_estado_orden.es_efectiva excludes
+-- Cancelled, Disputed and On Hold): units of a cancelled order were
+-- never sold.
 --
 -- Run after datawarehouse/edw/star_schema.sql.
 -- ============================================================
@@ -22,7 +27,8 @@ DROP VIEW IF EXISTS dm.vw_ventas_mensuales_linea           CASCADE;
 --
 -- Aggregates both facts to the same grain and joins them with a FULL
 -- OUTER JOIN, so it answers which products generate the most service
--- calls per unit sold.
+-- calls per unit sold. Sales are effective orders only; every call
+-- counts.
 -- ------------------------------------------------------------
 CREATE VIEW dm.vw_interaccion_cliente_producto AS
 WITH ventas AS (
@@ -32,7 +38,9 @@ WITH ventas AS (
            SUM(f.margen_linea)      AS margen_total,
            COUNT(*)                 AS lineas_orden
     FROM public.fact_ventas f
-    JOIN public.dim_tiempo  t ON f.tiempo_key = t.tiempo_key
+    JOIN public.dim_tiempo       t ON f.tiempo_key = t.tiempo_key
+    JOIN public.dim_estado_orden e ON f.estado_key = e.estado_key
+    WHERE e.es_efectiva
     GROUP BY 1, 2, 3
 ),
 llamadas AS (

@@ -52,6 +52,9 @@ SCD = {
     "dim_estado_orden": ("TIPO_1",
         "Dimension derivada de un dominio cerrado de seis valores; no "
         "cambia entre cargas."),
+    "dim_lote_carga": ("TIPO_1",
+        "Una fila por carga. Solo cambia si una corrida retomada vuelve a "
+        "cargar: entonces se sobrescriben su fecha y su conteo de filas."),
 }
 
 # object name -> (type, grain, description, is_conformed)
@@ -95,6 +98,14 @@ OBJECTS = {
         "DIMENSION", None,
         "Dimension de estado de la orden. es_efectiva distingue las ventas "
         "cerradas de las canceladas, en disputa o en espera.", False),
+    "dim_lote_carga": (
+        "DIMENSION", None,
+        "Dimension de auditoria. La capa 7 registra cada carga en la misma "
+        "transaccion que los datos, y cada fila de las dimensiones y los "
+        "hechos apunta con lote_carga_key a la carga que la escribio por "
+        "ultima vez. Dice desde que corrida de staging se cargo cada rama; "
+        "el proceso de hechos la consulta para no cargar hechos sobre "
+        "dimensiones de otra corrida.", False),
     "vw_interaccion_cliente_producto": (
         "VIEW", "Cliente x producto x mes.",
         "Data mart (schema dm) que cruza los dos hechos al grano "

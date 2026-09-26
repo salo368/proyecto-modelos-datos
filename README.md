@@ -30,13 +30,13 @@ Solo hace falta **Docker** y **Python 3.9 o superior**.
 python run_all.py
 ```
 
-El script levanta el stack de [`docker-compose.yml`](docker-compose.yml), restaura las dos fuentes desde `sources/`, crea `.env` a partir de [`.env.example`](.env.example), instala las dependencias de [`requirements.txt`](requirements.txt) y ejecuta los 31 pasos del pipeline. La primera vez tarda algunos minutos mientras descarga las imágenes de Docker.
+El script levanta el stack de [`docker-compose.yml`](docker-compose.yml), restaura las dos fuentes desde `sources/`, crea `.env` a partir de [`.env.example`](.env.example), instala las dependencias de [`requirements.txt`](requirements.txt) y ejecuta los 34 pasos del pipeline. La primera vez tarda algunos minutos mientras descarga las imágenes de Docker.
 
 | Opción | Qué hace |
 |---|---|
 | `python run_all.py` | Levanta el stack y ejecuta el pipeline completo |
 | `python run_all.py --etl-only` | No toca Docker; ejecuta el pipeline contra las bases del `.env` |
-| `python run_all.py --etl-only --from-step N` | Retoma en el paso N sin repetir los anteriores; si un paso falla, el mensaje de error indica este comando con su número |
+| `python run_all.py --etl-only --from-step N` | Retoma en el paso N sin repetir los anteriores; si un paso falla, el mensaje de error indica este comando con su número. Si el paso N es un proceso del pipeline, su corrida fallida continúa desde la capa donde se detuvo |
 | `python run_all.py --reset` | Borra los volúmenes de Docker y reconstruye todo desde cero |
 | `python run_all.py --down` | Apaga el stack conservando los datos |
 
@@ -64,15 +64,16 @@ El almacén, el staging del pipeline y el repositorio de metadatos son tres base
 | 12–14 | Almacén de datos | Tablas del EDW, sus miembros especiales (Desconocido, Sin asignar) y vistas de los data marts en la base `dw` |
 | 15–19 | Pipeline | Base `staging` y sus tablas; procesos de staging (capas 1–4), dimensiones y hechos (capas 5–7) |
 | 20–21 | Metadatos del almacén | Catálogo del almacén con su linaje y medición de uso |
-| 22–25 | Pruebas | Totales del almacén contra las fuentes, camino de rechazo de la capa de calidad (incluido el rechazo en cascada), Load todo-o-nada ante una falla forzada y retoma de una carga sin dañar el almacén |
-| 26 | Reportes | Dashboard de Metabase |
-| 27–29 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
-| 30 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
-| 31 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
+| 22–27 | Pruebas | Conciliación del almacén con las fuentes (cargado + rechazado), camino de rechazo de la capa de calidad (cascada, duplicados y órdenes incompletas), verificación de forma de la capa 6, Load todo-o-nada ante una falla forzada, retoma entre procesos y retoma de una corrida desde la capa que falló |
+| 28 | Retención | Depura las corridas viejas del staging y conserva las últimas 3 por proceso y las que alimentan el almacén |
+| 29 | Reportes | Dashboard de Metabase |
+| 30–32 | Backups | Backup del almacén y del repositorio, y prueba de restauración de ambos |
+| 33 | Calidad por etapa | [`docs/data_quality_report.md`](docs/data_quality_report.md): registros que entran y salen de cada capa, nulos resueltos y conservados, y sobre qué porcentaje de los datos se apoya cada análisis |
+| 34 | Diagramas | Diagramas físicos y del pipeline en [`docs/img/`](docs/img/) |
 
 Antes de sacar conclusiones de los dashboards, lea el [reporte de calidad por etapa](docs/data_quality_report.md): dice qué parte de los datos es verificable y qué decisiones recortan la base de cada análisis.
 
-Todos los pasos se pueden volver a ejecutar sobre bases ya cargadas: los DDL del repositorio y del staging usan `IF NOT EXISTS`, las cargas usan *upsert* o reemplazan el contenido, y las tablas de staging solo agregan filas nuevas bajo un `run_id`, así que el historial de corridas sobrevive a cada `run_all.py`. La excepción es el DDL del almacén (paso 12), que lo recrea vacío para que el pipeline lo vuelva a cargar. Cómo se retoma una carga que falla a mitad de camino está en el [README del pipeline](pipeline/README.md#tolerancia-a-fallos).
+Todos los pasos se pueden volver a ejecutar sobre bases ya cargadas: los DDL del repositorio y del staging usan `IF NOT EXISTS`, las cargas usan *upsert* o reemplazan el contenido, y las tablas de staging solo agregan filas nuevas bajo un `run_id`, así que el historial de corridas sobrevive a cada `run_all.py` (la retención del paso 28 conserva las corridas recientes y las que alimentan el almacén). La excepción es el DDL del almacén (paso 12), que lo recrea vacío para que el pipeline lo vuelva a cargar. Cómo se retoma una carga que falla a mitad de camino, desde la capa donde se detuvo, está en el [README del pipeline](pipeline/README.md#tolerancia-a-fallos).
 
 ```mermaid
 flowchart LR

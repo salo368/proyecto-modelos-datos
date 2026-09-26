@@ -5,8 +5,9 @@ Replays how a load is resumed after a new staging run and checks the
 warehouse after each step against a snapshot taken before:
 
   1. The facts alone. The loaded dimensions come from the previous
-     staging run, so run_facts.py must refuse to start instead of
-     resolving keys against dimensions built from other data.
+     staging run (dim_lote_carga says so), so run_facts.py must refuse
+     to start instead of resolving keys against dimensions built from
+     other data.
   2. The dimensions. They are upserted on their business key, so their
      surrogate keys do not change and the facts already loaded stay
      untouched (a full reload with TRUNCATE ... CASCADE emptied them).
@@ -15,7 +16,8 @@ warehouse after each step against a snapshot taken before:
 
 It runs the real processes against the live databases and leaves the
 warehouse loaded from the new staging run. The extra runs stay in the
-staging history, like any other load.
+staging history, like any other load. Resuming a run from the layer
+where it failed is tested in test_resume_layers.py.
 
 Usage:
     python pipeline/tests/test_resume.py
@@ -38,11 +40,16 @@ FACT_KEYS = {"fact_ventas": "venta_key", "fact_llamadas_servicio": "llamada_key"
 
 
 def snapshot():
-    """(rows, md5 of the full content) per table."""
+    """(rows, md5 of the full content) per table.
+
+    lote_carga_key is left out: it names the load that last wrote the
+    row, so it changes on every load even when the data does not.
+    """
     out = {}
     with DW.connect() as con:
         for t in DIMENSIONS + list(FACT_KEYS):
-            row = f"(to_jsonb(x) - '{FACT_KEYS[t]}')" if t in FACT_KEYS else "to_jsonb(x)"
+            drop = " - 'lote_carga_key'" + (f" - '{FACT_KEYS[t]}'" if t in FACT_KEYS else "")
+            row = f"(to_jsonb(x){drop})"
             out[t] = tuple(con.execute(sa.text(
                 f"SELECT COUNT(*), md5(COALESCE(string_agg({row}::text, '|' "
                 f"ORDER BY {row}::text), '')) FROM {t} x")).one())
