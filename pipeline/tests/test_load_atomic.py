@@ -4,16 +4,17 @@ Test: Load (layer 7) is all-or-nothing.
 Forces a failure halfway through a load and checks that the warehouse is
 left exactly as it was before the attempt.
 
-The batch has two tables:
+The batch has three tables, one per way Load writes:
 
-  1. dim_oficina with a single valid row. On its own it would succeed:
-     TRUNCATE ... CASCADE empties dim_oficina AND, through the foreign
-     keys, fact_ventas and fact_llamadas_servicio; then one row is written.
-  2. dim_estado_orden with a column that does not exist, so it fails.
+  1. dim_oficina, upserted: an existing office with another city. On its
+     own it would succeed and overwrite that office.
+  2. fact_llamadas_servicio, replaced: a single call. On its own it would
+     succeed, emptying the table and leaving that one call.
+  3. dim_estado_orden with a column that does not exist, so it fails.
 
-With the old per-table load, the warehouse would end up with one office
-and both fact tables empty. With load_atomic, PostgreSQL rolls back the
-whole batch and every table keeps its previous content.
+With a per-table load, the warehouse would end up with the office
+changed and every call but one gone. With load_atomic, PostgreSQL rolls
+back the whole batch and every table keeps its previous content.
 
 The test compares row counts and an MD5 of each table's full content, so
 it also catches a change that keeps the same number of rows.
@@ -50,15 +51,22 @@ def snapshot():
 
 def main():
     before = snapshot()
-    if before["fact_ventas"][0] == 0:
+    if before["fact_llamadas_servicio"][0] < 2:
         sys.exit("The warehouse is empty. Run the pipeline first: python run_all.py")
 
-    one_office = pd.read_sql("SELECT * FROM dim_oficina ORDER BY oficina_key LIMIT 1", DW)
+    # Load-Ready shape: business columns only, no surrogate key.
+    office = pd.read_sql("""SELECT codigo_oficina, ciudad, pais, region, territorio
+                            FROM dim_oficina ORDER BY oficina_key LIMIT 1""", DW)
+    office["ciudad"] = "Ciudad de prueba"
+    one_call = pd.read_sql("""SELECT tiempo_key, cliente_key, producto_key, empleado_key,
+                                     texto_llamada, cantidad_llamadas, longitud_texto
+                              FROM fact_llamadas_servicio ORDER BY llamada_key LIMIT 1""", DW)
     broken = pd.DataFrame([{"estado": "X", "es_efectiva": True,
                             "columna_que_no_existe": 1}])
 
     try:
-        load_atomic({"dim_oficina": one_office, "dim_estado_orden": broken})
+        load_atomic({"dim_oficina": office, "fact_llamadas_servicio": one_call,
+                     "dim_estado_orden": broken})
         failed = False
     except Exception as e:
         failed = True

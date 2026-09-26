@@ -5,7 +5,7 @@ Conforms each subject area from Clean Staging (never the sources) into
 the shape of its dimension:
 
     Area          Target             Operations
-    Tiempo        dim_tiempo         generated
+    Tiempo        dim_tiempo         generated from the fact dates
     Organizacion  dim_oficina        projection
     Ventas        dim_estado_orden   distinct values
     Cliente       dim_cliente        cross-source join, address merge
@@ -33,6 +33,9 @@ TARGETS = ["dim_tiempo", "dim_estado_orden", "dim_oficina",
 # Order statuses that do not count as a closed sale.
 NON_EFFECTIVE_STATUSES = {"Cancelled", "Disputed", "On Hold"}
 
+# Source dates that layer5_transform_facts.py turns into a tiempo_key.
+FACT_DATES = {"orders": "orderDate", "cs_customer_calls": "date"}
+
 _quality_results = []   # (rule, evaluated, failed) -> dq_result
 
 
@@ -51,9 +54,24 @@ def publish_transform(run_id, area, target, df, operations):
 # One function per subject area
 # ============================================================
 
-def area_time(run_id):
-    """Generated calendar covering 2003-2005, the span of sales and calls."""
-    rows, d, end = [], date(2003, 1, 1), date(2005, 12, 31)
+def area_time(run_id, staging_run):
+    """Calendar of the whole years spanned by the sales and the calls.
+
+    The span comes from Clean Staging, not from fixed dates, so a load
+    with a sale or a call in a new year extends the calendar instead of
+    breaking the foreign key of the fact.
+    """
+    dates = []
+    for table, col in FACT_DATES.items():
+        df = read_clean(staging_run, table)
+        if col in df.columns:
+            dates.append(pd.to_datetime(df[col], errors="coerce"))
+    dates = pd.concat(dates).dropna() if dates else pd.Series(dtype="datetime64[ns]")
+    if dates.empty:
+        raise RuntimeError("Clean Staging has no sale or call dates to build dim_tiempo from.")
+    first, end = date(dates.min().year, 1, 1), date(dates.max().year, 12, 31)
+
+    rows, d = [], first
     while d <= end:
         rows.append({
             "tiempo_key": int(d.strftime("%Y%m%d")), "fecha": d,
@@ -64,7 +82,7 @@ def area_time(run_id):
         })
         d += timedelta(days=1)
     publish_transform(run_id, "Tiempo", "dim_tiempo", pd.DataFrame(rows),
-                      "generacion")
+                      f"generacion ({first.year}-{end.year})")
 
 
 def area_organization(run_id, staging_run):
@@ -188,7 +206,7 @@ def run(run_id, staging_run):
     """Transform every dimension; returns the (rule, evaluated, failed)
     results to record in the metadata repository."""
     print("\n[Layer 5] Transformation (dimensions)")
-    area_time(run_id)
+    area_time(run_id, staging_run)
     area_organization(run_id, staging_run)
     area_sales(run_id, staging_run)
     area_customer(run_id, staging_run)

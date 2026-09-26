@@ -11,11 +11,13 @@ it to be ready and runs every step of the pipeline in order. Needs only
 Docker and Python 3.9+.
 
 Options:
-    python run_all.py              start the stack and run the pipeline
-    python run_all.py --etl-only   skip Docker, run the pipeline against .env
-    python run_all.py --reset      wipe the Docker volumes and start over
-    python run_all.py --down       stop the stack (data is kept)
+    python run_all.py                  start the stack and run the pipeline
+    python run_all.py --etl-only       skip Docker, run the pipeline against .env
+    python run_all.py --from-step N    resume at step N, skipping the ones before
+    python run_all.py --reset          wipe the Docker volumes and start over
+    python run_all.py --down           stop the stack (data is kept)
 """
+import argparse
 import os
 import shutil
 import subprocess
@@ -90,6 +92,8 @@ PIPELINE = [
      [PY, "pipeline/tests/test_dq_reject_path.py"]),
     ("Test: load is all-or-nothing (forced failure)",
      [PY, "pipeline/tests/test_load_atomic.py"]),
+    ("Test: a load resumes without damaging the warehouse",
+     [PY, "pipeline/tests/test_resume.py"]),
 
     # --- Deliverables ---
     ("Reports: Metabase dashboard",
@@ -230,28 +234,55 @@ def install_dependencies():
 # Pipeline
 # ============================================================
 
-def run_pipeline():
+def run_pipeline(first=1):
+    """Run the steps from `first` on. The earlier ones are assumed done:
+    what they left in the databases is kept, not rebuilt."""
     total = len(PIPELINE)
+    if first > 1:
+        print(f"  Resuming at step {first}: {PIPELINE[first - 1][0]}")
     for i, (title, cmd) in enumerate(PIPELINE, 1):
+        if i < first:
+            continue
         print(f"\n[{i}/{total}] {title}\n" + "-" * 66)
         if subprocess.run(cmd, cwd=ROOT).returncode != 0:
             print(f"\nStep {i} failed: {title}")
-            print("Fix it and run again with: python run_all.py --etl-only")
+            print(f"Fix it and resume from this step with: "
+                  f"python run_all.py --etl-only --from-step {i}")
             sys.exit(1)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build the whole project: Docker stack and pipeline.")
+    parser.add_argument("--etl-only", action="store_true",
+                        help="skip Docker and run the pipeline against the databases in .env")
+    parser.add_argument("--from-step", type=int, default=1, metavar="N",
+                        help=f"resume at step N (1-{len(PIPELINE)}) without repeating the earlier ones")
+    parser.add_argument("--reset", action="store_true",
+                        help="wipe the Docker volumes and start over")
+    parser.add_argument("--down", action="store_true",
+                        help="stop the stack, keeping the data")
+    args = parser.parse_args()
+    if not 1 <= args.from_step <= len(PIPELINE):
+        parser.error(f"--from-step must be between 1 and {len(PIPELINE)}")
+    if args.reset and args.from_step > 1:
+        parser.error("--reset wipes every database, so the build cannot resume "
+                     "halfway; drop --from-step")
+    return args
+
+
 def main():
-    args = set(sys.argv[1:])
+    args = parse_args()
     compose = compose_command()
 
-    if "--down" in args:
+    if args.down:
         if not compose:
             sys.exit("Docker not found.")
         subprocess.run(compose + ["down"], cwd=ROOT)
         print("\nStack stopped; data is kept. To wipe it: python run_all.py --reset")
         return
 
-    etl_only = "--etl-only" in args
+    etl_only = args.etl_only
     banner("Modelos y Persistencia de Datos - full build")
 
     banner("1. Infrastructure")
@@ -263,7 +294,7 @@ def main():
                      "existing databases and run: python run_all.py --etl-only")
         if not docker_running():
             sys.exit("\nDocker is installed but the daemon is not responding.")
-        start_stack(compose, reset="--reset" in args)
+        start_stack(compose, reset=args.reset)
         wait_for_databases()
 
     banner("2. Python environment")
@@ -273,7 +304,7 @@ def main():
     banner("3. Pipeline")
     if not etl_only:
         wait_for_metabase()
-    run_pipeline()
+    run_pipeline(args.from_step)
 
     banner("Done")
     print("""

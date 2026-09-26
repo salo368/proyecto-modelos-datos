@@ -8,7 +8,10 @@ per rule type and checks that:
   1. each defect is caught by the rule it belongs to;
   2. blocking (RECHAZADO) failures send the record to the rejected set;
   3. warnings (ADVERTENCIA) let the record through;
-  4. no healthy record is flagged.
+  4. the children of a rejected record are rejected too, down every
+     level (customer -> order -> order line), so nothing that reaches
+     Clean Staging points to a record that did not;
+  5. no healthy record is flagged.
 
 It calls the same functions as the ETL on in-memory data and writes
 nothing; it only reads the NOT NULL columns from the metadata repository.
@@ -17,14 +20,19 @@ Usage:
     python pipeline/tests/test_dq_reject_path.py
 """
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from layer3_data_quality import (QualityLog, business_checks,  # noqa: E402
-                                 technical_checks)
+                                 cascade_rejections, technical_checks)
 from layer4_clean_staging import rejection_reasons  # noqa: E402
+
+
+# A date after the load, relative to today so the test never expires.
+FUTURE = date.today() + timedelta(days=30)
 
 
 def batch(source, rows):
@@ -83,6 +91,13 @@ DATA = {
         # tipo_de_dato_valido (reject): unparseable date
         {"orderNumber": 103, "orderDate": "no-es-fecha", "requiredDate": "2004-01-20",
          "shippedDate": None, "status": "In Process", "customerNumber": 1},
+        # padre_rechazado (reject): healthy, but its customer #3 was rejected
+        {"orderNumber": 104, "orderDate": "2004-01-10", "requiredDate": "2004-01-20",
+         "shippedDate": None, "status": "In Process", "customerNumber": 3},
+        # fecha_no_futura (reject): ordered after the load
+        {"orderNumber": 105, "orderDate": FUTURE.isoformat(),
+         "requiredDate": (FUTURE + timedelta(days=10)).isoformat(),
+         "shippedDate": None, "status": "In Process", "customerNumber": 1},
     ]),
     "orderdetails": batch("classicmodels", [
         {"orderNumber": 100, "productCode": "P1", "quantityOrdered": 2,
@@ -93,11 +108,19 @@ DATA = {
         # valores_positivos (reject): negative quantity
         {"orderNumber": 100, "productCode": "P1", "quantityOrdered": -3,
          "priceEach": 15.0, "orderLineNumber": 3},
+        # padre_rechazado (reject): line of order 101, rejected for its dates
+        {"orderNumber": 101, "productCode": "P1", "quantityOrdered": 1,
+         "priceEach": 15.0, "orderLineNumber": 1},
+        # padre_rechazado (reject), second level: line of order 104, whose
+        # customer was rejected
+        {"orderNumber": 104, "productCode": "P1", "quantityOrdered": 1,
+         "priceEach": 15.0, "orderLineNumber": 1},
     ]),
     "cs_customers": batch("customerservice", [
         {"customernumber": 1, "phone": "1", "city": "c", "country": "p", "postalcode": "1"},
         # consistencia_entre_fuentes_cliente (warning): different city
         {"customernumber": 2, "phone": "2", "city": "OTRA", "country": "p", "postalcode": "2"},
+        {"customernumber": 3, "phone": "3", "city": "c", "country": "p", "postalcode": "3"},
     ]),
     "cs_products": batch("customerservice", [
         {"productcode": "P1", "productname": "Auto", "productscale": "1:10", "productvendor": "V"},
@@ -111,6 +134,10 @@ DATA = {
         # integridad_referencial (reject): customer missing from both sources
         {"employeenumber": 50, "customernumber": 999, "productcode": "P1",
          "text": "huerfana", "date": "2004-02-01"},
+        # padre_rechazado (reject), across sources: customer #3 exists in
+        # both, but classicmodels rejected it
+        {"employeenumber": 50, "customernumber": 3, "productcode": "P1",
+         "text": "cliente rechazado", "date": "2004-02-01"},
     ]),
 }
 
@@ -123,10 +150,15 @@ EXPECTED = {
     ("orders", 2):            ("secuencia_de_fechas", True),
     ("orders", 3):            ("envio_consistente_con_estado", True),
     ("orders", 4):            ("tipo_de_dato_valido", True),
+    ("orders", 5):            ("padre_rechazado", True),
+    ("orders", 6):            ("fecha_no_futura", True),
     ("orderdetails", 2):      ("integridad_referencial", True),
     ("orderdetails", 3):      ("valores_positivos", True),
+    ("orderdetails", 4):      ("padre_rechazado", True),
+    ("orderdetails", 5):      ("padre_rechazado", True),
     ("cs_customers", 2):      ("consistencia_entre_fuentes_cliente", False),
     ("cs_customer_calls", 2): ("integridad_referencial", True),
+    ("cs_customer_calls", 3): ("padre_rechazado", True),
 }
 
 
@@ -134,6 +166,7 @@ def main():
     log = QualityLog()
     technical_checks(DATA, log)
     business_checks(DATA, log)
+    cascade_rejections(DATA, log)
     rejected = rejection_reasons(log.failures)
 
     detected = {}

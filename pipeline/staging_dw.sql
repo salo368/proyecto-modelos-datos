@@ -22,18 +22,20 @@
 --                          (datawarehouse/edw/star_schema.sql)
 --
 -- Staging tables are never truncated: each run appends rows under its
--- run_id, so the full history of every load is kept.
+-- run_id, so the full history of every load is kept. This script is
+-- idempotent for the same reason: running it again (run_all.py does, on
+-- every build) creates what is missing and keeps every past run. To
+-- start from an empty staging area: python run_all.py --reset
 -- ============================================================
 
-DROP SCHEMA IF EXISTS staging_dw CASCADE;
-CREATE SCHEMA staging_dw;
+CREATE SCHEMA IF NOT EXISTS staging_dw;
 
 -- ------------------------------------------------------------
 -- Run control. The staging process (layers 1-4) opens one run; the
 -- dimension and fact processes (layers 5-7) open their own and record
 -- in run_origen which staging run they read.
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.etl_run (
+CREATE TABLE IF NOT EXISTS staging_dw.etl_run (
     run_id          SERIAL PRIMARY KEY,
     proceso         VARCHAR(30)  NOT NULL,   -- 'staging' | 'dimensiones' | 'hechos'
     run_origen      INTEGER REFERENCES staging_dw.etl_run(run_id),
@@ -50,7 +52,7 @@ CREATE TABLE staging_dw.etl_run (
 -- One table per source system. Each row is stored exactly as read,
 -- as a JSONB payload, with no schema imposed yet.
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.stg_initial_classicmodels (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_initial_classicmodels (
     stg_id          BIGSERIAL PRIMARY KEY,
     run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     tabla_origen    VARCHAR(60) NOT NULL,
@@ -59,7 +61,7 @@ CREATE TABLE staging_dw.stg_initial_classicmodels (
     extraido_en     TIMESTAMP   NOT NULL DEFAULT now()
 );
 
-CREATE TABLE staging_dw.stg_initial_customerservice (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_initial_customerservice (
     stg_id          BIGSERIAL PRIMARY KEY,
     run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     tabla_origen    VARCHAR(60) NOT NULL,
@@ -68,12 +70,12 @@ CREATE TABLE staging_dw.stg_initial_customerservice (
     extraido_en     TIMESTAMP   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_ini_cm_run ON staging_dw.stg_initial_classicmodels(run_id, tabla_origen);
-CREATE INDEX idx_ini_cs_run ON staging_dw.stg_initial_customerservice(run_id, tabla_origen);
+CREATE INDEX IF NOT EXISTS idx_ini_cm_run ON staging_dw.stg_initial_classicmodels(run_id, tabla_origen);
+CREATE INDEX IF NOT EXISTS idx_ini_cs_run ON staging_dw.stg_initial_customerservice(run_id, tabla_origen);
 
 -- Column profile (nulls, distinct values, min, max) of every column
 -- that landed in Initial Staging, computed on every load.
-CREATE TABLE staging_dw.stg_perfil (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_perfil (
     perfil_id       BIGSERIAL PRIMARY KEY,
     run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     fuente          VARCHAR(40) NOT NULL,
@@ -87,7 +89,7 @@ CREATE TABLE staging_dw.stg_perfil (
     maximo          TEXT
 );
 
-CREATE INDEX idx_perfil_run ON staging_dw.stg_perfil(run_id);
+CREATE INDEX IF NOT EXISTS idx_perfil_run ON staging_dw.stg_perfil(run_id);
 
 -- ------------------------------------------------------------
 -- Layer 3 - Data Quality
@@ -99,7 +101,7 @@ CREATE INDEX idx_perfil_run ON staging_dw.stg_perfil(run_id);
 --   RECHAZADO    the record cannot continue and goes to stg_rejected
 --   ADVERTENCIA  the record continues; the anomaly is only logged
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.stg_error_log (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_error_log (
     error_id        BIGSERIAL PRIMARY KEY,
     run_id          INTEGER      NOT NULL REFERENCES staging_dw.etl_run(run_id),
     fuente          VARCHAR(40)  NOT NULL,
@@ -119,7 +121,7 @@ CREATE TABLE staging_dw.stg_error_log (
     CHECK (accion IN ('RECHAZADO', 'ADVERTENCIA'))
 );
 
-CREATE INDEX idx_error_run ON staging_dw.stg_error_log(run_id);
+CREATE INDEX IF NOT EXISTS idx_error_run ON staging_dw.stg_error_log(run_id);
 
 -- ------------------------------------------------------------
 -- Layer 4 - Clean Staging
@@ -128,7 +130,7 @@ CREATE INDEX idx_error_run ON staging_dw.stg_error_log(run_id);
 -- transformation layer only reads stg_clean. Records with warnings
 -- only are stored as clean.
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.stg_clean (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_clean (
     stg_id          BIGSERIAL PRIMARY KEY,
     run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     fuente          VARCHAR(40) NOT NULL,
@@ -138,7 +140,7 @@ CREATE TABLE staging_dw.stg_clean (
     limpiado_en     TIMESTAMP   NOT NULL DEFAULT now()
 );
 
-CREATE TABLE staging_dw.stg_rejected (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_rejected (
     stg_id          BIGSERIAL PRIMARY KEY,
     run_id          INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     fuente          VARCHAR(40) NOT NULL,
@@ -149,8 +151,8 @@ CREATE TABLE staging_dw.stg_rejected (
     rechazado_en    TIMESTAMP   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_clean_run    ON staging_dw.stg_clean(run_id, tabla_origen);
-CREATE INDEX idx_rejected_run ON staging_dw.stg_rejected(run_id, tabla_origen);
+CREATE INDEX IF NOT EXISTS idx_clean_run    ON staging_dw.stg_clean(run_id, tabla_origen);
+CREATE INDEX IF NOT EXISTS idx_rejected_run ON staging_dw.stg_rejected(run_id, tabla_origen);
 
 -- ------------------------------------------------------------
 -- Layer 5 - Transformation
@@ -159,7 +161,7 @@ CREATE INDEX idx_rejected_run ON staging_dw.stg_rejected(run_id, tabla_origen);
 -- Organizacion, Tiempo, Ventas, Servicio): joins, surrogate-key
 -- lookups and calculated measures. operaciones records what was done.
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.stg_transform (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_transform (
     stg_id           BIGSERIAL PRIMARY KEY,
     run_id           INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     area_conformada  VARCHAR(30) NOT NULL,   -- 'Cliente', 'Ventas', ...
@@ -170,7 +172,7 @@ CREATE TABLE staging_dw.stg_transform (
     transformado_en  TIMESTAMP   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_transform_run ON staging_dw.stg_transform(run_id, objetivo);
+CREATE INDEX IF NOT EXISTS idx_transform_run ON staging_dw.stg_transform(run_id, objetivo);
 
 -- ------------------------------------------------------------
 -- Layer 6 - Load-Ready Publish
@@ -178,7 +180,7 @@ CREATE INDEX idx_transform_run ON staging_dw.stg_transform(run_id, objetivo);
 -- Rows in their final shape; the load is a direct insert.
 -- modelo_carga separates the dimension and fact load branches.
 -- ------------------------------------------------------------
-CREATE TABLE staging_dw.stg_loadready (
+CREATE TABLE IF NOT EXISTS staging_dw.stg_loadready (
     stg_id           BIGSERIAL PRIMARY KEY,
     run_id           INTEGER     NOT NULL REFERENCES staging_dw.etl_run(run_id),
     modelo_carga     VARCHAR(20) NOT NULL,   -- 'DIMENSIONES' | 'HECHOS'
@@ -189,14 +191,14 @@ CREATE TABLE staging_dw.stg_loadready (
     CHECK (modelo_carga IN ('DIMENSIONES', 'HECHOS'))
 );
 
-CREATE INDEX idx_loadready_run ON staging_dw.stg_loadready(run_id, objetivo);
+CREATE INDEX IF NOT EXISTS idx_loadready_run ON staging_dw.stg_loadready(run_id, objetivo);
 
 -- ============================================================
 -- Monitoring views
 -- ============================================================
 
 -- Row counts of every run in each layer.
-CREATE VIEW staging_dw.vw_trazabilidad_capas AS
+CREATE OR REPLACE VIEW staging_dw.vw_trazabilidad_capas AS
 SELECT r.run_id,
        r.proceso,
        r.run_origen,
@@ -214,7 +216,7 @@ FROM staging_dw.etl_run r
 ORDER BY r.run_id;
 
 -- Readable bad-transactions report.
-CREATE VIEW staging_dw.vw_reporte_transacciones_malas AS
+CREATE OR REPLACE VIEW staging_dw.vw_reporte_transacciones_malas AS
 SELECT e.run_id,
        e.fuente,
        e.tabla_origen,

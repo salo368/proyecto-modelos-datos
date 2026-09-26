@@ -50,22 +50,47 @@ def close_run(run_id, status):
         """), {"e": status, "r": run_id})
 
 
+def last_successful_run(process):
+    """(run_id, run_origen) of the latest run of a process that finished
+    OK, or (None, None) if there is none."""
+    with STAGING.connect() as con:
+        row = con.execute(sa.text("""
+            SELECT run_id, run_origen FROM staging_dw.etl_run
+            WHERE proceso = :p AND estado = 'OK'
+            ORDER BY run_id DESC LIMIT 1
+        """), {"p": process}).first()
+    return tuple(row) if row else (None, None)
+
+
 def last_successful_staging_run():
     """run_id of the latest staging run that finished OK.
 
     The dimension and fact processes read Clean Staging from this run
     and never query the sources directly.
     """
-    with STAGING.connect() as con:
-        run_id = con.execute(sa.text("""
-            SELECT MAX(run_id) FROM staging_dw.etl_run
-            WHERE proceso = 'staging' AND estado = 'OK'
-        """)).scalar()
+    run_id, _ = last_successful_run("staging")
     if run_id is None:
         raise RuntimeError(
             "No finished staging run found.\n"
             "Run first: python pipeline/run_staging.py")
     return run_id
+
+
+def check_dimensions_loaded_from(staging_run):
+    """Stop unless the dimensions in the warehouse came from staging_run.
+
+    Facts resolve their surrogate keys against the loaded dimensions, so
+    both must be built from the same Clean Staging. After a new staging
+    run, the dimensions have to be reloaded before the facts.
+    """
+    dims_run, origin = last_successful_run("dimensiones")
+    if origin != staging_run:
+        loaded = (f"were loaded from staging run {origin} (run {dims_run})"
+                  if dims_run else "have never been loaded")
+        raise RuntimeError(
+            f"The dimensions in the warehouse {loaded}, but the latest "
+            f"successful staging run is {staging_run}.\n"
+            "Run first: python pipeline/run_dimensions.py")
 
 
 # ============================================================
